@@ -1,0 +1,45 @@
+name: Build Android APK (Ultra-Optimized)
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Gradle with Cloud Caching
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Build Debug & R8-Optimized Release APKs
+        run: gradle assembleDebug assembleRelease --stacktrace
+
+      - name: Upload Ready-to-Install Release APK (R8 Optimized)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ProAnimationStudio-Release-APK
+          path: app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+
+      - name: Upload Debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ProAnimationStudio-Debug-APK
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+
