@@ -14,25 +14,28 @@ import android.view.View
 import com.animationapp.core.config.StudioConfig
 import com.animationapp.core.diagnostics.CrashReporter
 import com.animationapp.core.profiler.PerformanceHud
+import com.animationapp.core.storage.CrashSafeAutosave
 import com.animationapp.engine.brush.InputStabilizer
 import com.animationapp.engine.canvas.ViewportController
 import com.animationapp.engine.onion.OnionSkinRenderer
+import com.animationapp.engine.tools.SmartFloodFillEngine
 import com.animationapp.engine.tools.StudioToolType
 import com.animationapp.model.AnimationProject
+import com.animationapp.model.LayerCel
 import com.animationapp.model.Stroke
 import kotlin.math.atan2
 import kotlin.math.hypot
 
 /**
- * Hardware-accelerated, zero-allocation 2D animation stage & viewport engine.
+ * Hardware-accelerated, zero-allocation Multi-Layer 2D Animation Stage & Viewport Engine.
  *
  * Capabilities:
- * - Multi-touch Pan, Pinch-to-Zoom (15% to 3200%), Two-Finger Canvas Rotation, and Horizontal Mirror Flip.
- * - Two-Finger Quick Tap for instant Undo; Three-Finger Quick Tap for instant Redo.
- * - Input Stabilizer (Lazy-Mouse / Exponential Moving Average) for silky lines on budget screens.
- * - Offscreen Frame Bitmap Cache so completed strokes render in O(1) time.
- * - Tinted Past (Ruby Red) & Future (Cyan) Multi-Frame Onion Skinning.
- * - Real-time FPS / RAM / Frame / Zoom HUD (tap HUD to open Live Diagnostics).
+ * - Multi-Layer Compositing (Visibility, Opacity, Blend Modes, Alpha Lock, Reference Layer Fill).
+ * - Smart Scanline Flood-Fill Bucket (`FILL_BUCKET`) with Reference Layer boundary detection & 1px under-line color trapping.
+ * - Instant Canvas Eyedropper (`EYEDROPPER`) color sampling.
+ * - Symmetry Mirror Drawing Guide (Vertical axis mirror drawing).
+ * - Exposure Hold playback (1s, 2s, 3s, 4s timing).
+ * - Atomic Background Autosave (`CrashSafeAutosave`) after every stroke/action.
  */
 class AnimationCanvasView(
     context: Context,
@@ -53,14 +56,20 @@ class AnimationCanvasView(
     var brushSizePx: Float = StudioConfig.DEFAULT_BRUSH_SIZE_PX
     var eraserSizePx: Float = StudioConfig.DEFAULT_ERASER_SIZE_PX
 
-    // Playback loop state
+    // Symmetry Guide Mode
+    var isVerticalSymmetryEnabled: Boolean = false
+
+    // Playback loop state with Exposure Hold counter
     var isPlaying: Boolean = false
         private set
     private var lastPlaybackStepTimeMs = 0L
+    private var currentHoldTick = 0
 
-    // Offscreen Bitmap Cache for current active frame
-    private var frameCacheBitmap: Bitmap? = null
-    private var frameCacheCanvas: Canvas? = null
+    // Offscreen Composite Bitmap Cache & Scratch Layer Bitmap
+    private var compositeCacheBitmap: Bitmap? = null
+    private var compositeCacheCanvas: Canvas? = null
+    private var scratchLayerBitmap: Bitmap? = null
+    private var scratchLayerCanvas: Canvas? = null
 
     // Pre-allocated Paints & Rects (Zero allocations in onDraw)
     private val workspaceBgColor = Color.rgb(18, 19, 24)
@@ -73,12 +82,19 @@ class AnimationCanvasView(
         style = Paint.Style.STROKE
         strokeWidth = 3f
     }
+    private val symmetryGuidePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(150, 0, 210, 255)
+        style = Paint.Style.STROKE
+        strokeWidth = 2.5f
+    }
     private val strokePaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.DITHER_FLAG).apply {
         style = Paint.Style.STROKE
         strokeJoin = Paint.Join.ROUND
         strokeCap = Paint.Cap.ROUND
     }
     private val eraserXfermode = PorterDuffXfermode(PorterDuff.Mode.CLEAR)
+    private val alphaLockXfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_ATOP)
+
     private val stageRect = RectF(
         0f,
         0f,
@@ -86,10 +102,11 @@ class AnimationCanvasView(
         project.stageHeight.toFloat()
     )
 
-    // Active stroke in progress
+    // Active stroke(s) in progress (primary + optional symmetry mirror stroke)
     private var activeStroke: Stroke? = null
+    private var activeMirrorStroke: Stroke? = null
 
-    // Multi-touch gesture tracking (primitive floats to avoid allocations)
+    // Multi-touch gesture tracking
     private var isMultiTouchGesture = false
     private var maxPointersInGesture = 0
     private var gestureDownTimeMs = 0L
@@ -100,48 +117,85 @@ class AnimationCanvasView(
     private var prevAngleDeg = 0f
 
     init {
-        ensureFrameCacheAllocated()
+        ensureCachesAllocated()
+        // Restore previous autosaved project if available
+        CrashSafeAutosave.loadSavedProjectIfPresent(context, project)
     }
 
-    private fun ensureFrameCacheAllocated() {
-        val currentBmp = frameCacheBitmap
-        if (currentBmp == null || currentBmp.isRecycled ||
-            currentBmp.width != project.stageWidth || currentBmp.height != project.stageHeight
-        ) {
-            currentBmp?.let { if (!it.isRecycled) it.recycle() }
-            val bmp = Bitmap.createBitmap(
-                project.stageWidth,
-                project.stageHeight,
-                Bitmap.Config.ARGB_8888
-            )
-            frameCacheBitmap = bmp
-            frameCacheCanvas = Canvas(bmp)
-            project.currentFrame.isCacheDirty = true
+    private fun ensureCachesAllocated() {
+        val w = project.stageWidth
+        val h = project.stageHeight
+        val comp = compositeCacheBitmap
+        if (comp == null || comp.isRecycled || comp.width != w || comp.height != h) {
+            comp?.let { if (!it.isRecycled) it.recycle() }
+            val newComp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+            compositeCacheBitmap = newComp
+            compositeCacheCanvas = Canvas(newComp)
         }
+
+        val scratch = scratchLayerBitmap
+        if (scratch == null || scratch.isRecycled || scratch.width != w || scratch.height != h) {
+            scratch?.let { if (!it.isRecycled) it.recycle() }
+            val newScratch = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+            scratchLayerBitmap = newScratch
+            scratchLayerCanvas = Canvas(newScratch)
+        }
+        project.currentFrame.isCacheDirty = true
     }
 
-    private fun rebuildFrameCacheIfNeeded() {
+    private fun rebuildCompositeCacheIfNeeded() {
         val frame = project.currentFrame
         if (!frame.isCacheDirty) return
 
-        ensureFrameCacheAllocated()
-        val cacheCanvas = frameCacheCanvas ?: return
-        cacheCanvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
+        ensureCachesAllocated()
+        val compCanvas = compositeCacheCanvas ?: return
+        val scratchCanvas = scratchLayerCanvas ?: return
+        val scratchBmp = scratchLayerBitmap ?: return
 
-        val strokes = frame.strokes
-        for (i in 0 until strokes.size) {
-            drawStrokeOntoCanvas(cacheCanvas, strokes[i])
+        compCanvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
+
+        val layers = project.layers
+        for (lIdx in 0 until layers.size) {
+            val layer = layers[lIdx]
+            if (!layer.isVisible) continue
+
+            val cel = frame.getCel(lIdx)
+            if (cel.strokes.isEmpty() && cel.fillBitmap == null) continue
+
+            // Render this single layer onto scratch bitmap first so Eraser & Alpha Lock only affect this layer!
+            scratchCanvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
+            renderCelOntoCanvas(scratchCanvas, cel, layer.isAlphaLocked)
+
+            // Composite layer onto stage cache with layer Opacity & Blend Mode
+            layer.syncCompositingPaint()
+            compCanvas.drawBitmap(scratchBmp, 0f, 0f, layer.compositingPaint)
         }
         frame.isCacheDirty = false
     }
 
-    private fun drawStrokeOntoCanvas(targetCanvas: Canvas, stroke: Stroke) {
+    private fun renderCelOntoCanvas(targetCanvas: Canvas, cel: LayerCel, isAlphaLocked: Boolean) {
+        cel.fillBitmap?.let { fillBmp ->
+            if (!fillBmp.isRecycled) {
+                targetCanvas.drawBitmap(fillBmp, 0f, 0f, null)
+            }
+        }
+        val strokes = cel.strokes
+        for (i in 0 until strokes.size) {
+            drawStrokeOntoCanvas(targetCanvas, strokes[i], isAlphaLocked && i > 0)
+        }
+    }
+
+    private fun drawStrokeOntoCanvas(
+        targetCanvas: Canvas,
+        stroke: Stroke,
+        useAlphaLock: Boolean = false
+    ) {
         if (stroke.isEraser) {
             strokePaint.xfermode = eraserXfermode
             strokePaint.strokeWidth = stroke.baseSize
             strokePaint.color = Color.TRANSPARENT
         } else {
-            strokePaint.xfermode = null
+            strokePaint.xfermode = if (useAlphaLock) alphaLockXfermode else null
             strokePaint.color = stroke.color
             strokePaint.strokeWidth = stroke.baseSize
         }
@@ -157,15 +211,19 @@ class AnimationCanvasView(
     }
 
     override fun onDraw(canvas: Canvas) {
-        // 1. Advance timeline playback if playing
+        // 1. Advance timeline playback if playing (respecting per-frame Exposure Holds 1s/2s/3s)
         if (isPlaying) {
             val now = SystemClock.uptimeMillis()
-            val frameDurationMs = (1000L / project.fps.coerceAtLeast(1))
-            if (now - lastPlaybackStepTimeMs >= frameDurationMs) {
+            val tickDurationMs = (1000L / project.fps.coerceAtLeast(1))
+            if (now - lastPlaybackStepTimeMs >= tickDurationMs) {
                 lastPlaybackStepTimeMs = now
-                project.stepForwardLooping()
-                project.currentFrame.isCacheDirty = true
-                onStateChanged?.invoke()
+                currentHoldTick++
+                if (currentHoldTick >= project.currentFrame.exposureHold) {
+                    currentHoldTick = 0
+                    project.stepForwardLooping()
+                    project.currentFrame.isCacheDirty = true
+                    onStateChanged?.invoke()
+                }
             }
         }
 
@@ -176,47 +234,47 @@ class AnimationCanvasView(
         canvas.save()
         canvas.concat(viewport.viewMatrix)
 
-        // 4. Draw animation stage paper & subtle border
+        // 4. Draw animation stage paper & border
         stagePaperPaint.color = project.stageBackgroundColor
         canvas.drawRect(stageRect, stagePaperPaint)
         canvas.drawRect(stageRect, stageBorderPaint)
 
-        // Clip drawing strictly to the stage bounds
         canvas.clipRect(stageRect)
 
-        // 5. Draw multi-frame tinted Onion Skins (only when paused for max playback speed)
+        // 5. Draw multi-frame tinted Onion Skins (when paused)
         if (!isPlaying && project.isOnionSkinEnabled) {
             onionSkinRenderer.drawOnionSkins(canvas, project)
         }
 
-        // 6. Draw cached active frame bitmap in O(1)
-        rebuildFrameCacheIfNeeded()
-        frameCacheBitmap?.let { bmp ->
+        // 6. Draw cached multi-layer composite bitmap in O(1)
+        rebuildCompositeCacheIfNeeded()
+        compositeCacheBitmap?.let { bmp ->
             if (!bmp.isRecycled) {
                 canvas.drawBitmap(bmp, 0f, 0f, null)
             }
         }
 
-        // 7. Draw active stroke currently being drawn
+        // 7. Draw active stroke(s) currently being drawn
         activeStroke?.let { stroke ->
-            if (stroke.isEraser) {
-                // Visual preview ring/trail for eraser before baking into cache
-                strokePaint.xfermode = null
-                strokePaint.color = Color.WHITE
-                strokePaint.strokeWidth = stroke.baseSize
-                canvas.drawPath(stroke.renderPath, strokePaint)
-            } else {
-                drawStrokeOntoCanvas(canvas, stroke)
-            }
+            previewActiveStroke(canvas, stroke)
+        }
+        activeMirrorStroke?.let { mirrorStroke ->
+            previewActiveStroke(canvas, mirrorStroke)
+        }
+
+        // 8. Draw Vertical Symmetry Guide line if enabled
+        if (isVerticalSymmetryEnabled) {
+            val centerX = project.stageWidth * 0.5f
+            canvas.drawLine(centerX, 0f, centerX, project.stageHeight.toFloat(), symmetryGuidePaint)
         }
 
         canvas.restore()
 
-        // 8. Draw live Performance HUD in top-left (below top bar)
+        // 9. Draw live Performance HUD in top-left
         performanceHud.recordFrameAndDraw(
             canvas = canvas,
             x = 16f,
-            y = 82f,
+            y = 60f,
             frameIndex = project.currentFrameIndex,
             totalFrames = project.frames.size,
             zoomPercent = (viewport.zoomScale * 100f).toInt()
@@ -227,11 +285,21 @@ class AnimationCanvasView(
         }
     }
 
+    private fun previewActiveStroke(canvas: Canvas, stroke: Stroke) {
+        if (stroke.isEraser) {
+            strokePaint.xfermode = null
+            strokePaint.color = Color.WHITE
+            strokePaint.strokeWidth = stroke.baseSize
+            canvas.drawPath(stroke.renderPath, strokePaint)
+        } else {
+            drawStrokeOntoCanvas(canvas, stroke)
+        }
+    }
+
     override fun onTouchEvent(event: MotionEvent): Boolean {
         val action = event.actionMasked
         val pointerCount = event.pointerCount
 
-        // Check if user tapped the Performance HUD to open Live Diagnostics
         if (action == MotionEvent.ACTION_DOWN && pointerCount == 1) {
             if (performanceHud.hitTest(event.x, event.y)) {
                 onDiagnosticsRequested?.invoke()
@@ -239,41 +307,72 @@ class AnimationCanvasView(
             }
         }
 
-        // Handle Multi-Touch (2+ fingers: Pinch Zoom, Two-Finger Pan, Rotate, or 2/3-finger Tap Undo/Redo)
+        // Handle Multi-Touch (2+ fingers or Pan Tool)
         if (pointerCount >= 2 || activeTool == StudioToolType.HAND_PAN) {
             handleMultiTouchOrPanGesture(event)
             return true
         }
 
-        // If transitioning out of a multi-touch gesture, ignore trailing single finger until UP
         if (isMultiTouchGesture) {
             if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
-                finishMultiTouchGesture(event)
+                finishMultiTouchGesture()
             }
             return true
         }
 
-        // Single-finger / Stylus Drawing
         if (isPlaying) {
             pausePlayback()
+        }
+
+        // Block drawing if active layer is locked or hidden
+        val currentLayer = project.activeLayer
+        if (currentLayer.isLocked || !currentLayer.isVisible) {
+            return true
         }
 
         val stageX = viewport.screenToStageX(event.x, event.y)
         val stageY = viewport.screenToStageY(event.x, event.y)
         val pressure = event.pressure.coerceIn(0.1f, 1.0f)
 
+        // Handle Instant Single-Tap Tools: EYEDROPPER & FILL_BUCKET
+        if (activeTool == StudioToolType.EYEDROPPER) {
+            if (action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_MOVE) {
+                sampleColorAtStagePoint(stageX.toInt(), stageY.toInt())
+            }
+            if (action == MotionEvent.ACTION_UP) {
+                activeTool = StudioToolType.BRUSH
+                onStateChanged?.invoke()
+            }
+            return true
+        }
+
+        if (activeTool == StudioToolType.FILL_BUCKET) {
+            if (action == MotionEvent.ACTION_DOWN) {
+                performSmartBucketFillAt(stageX.toInt(), stageY.toInt())
+            }
+            return true
+        }
+
+        // Handle BRUSH & ERASER
+        val stageCenterX = project.stageWidth * 0.5f
+
         when (action) {
             MotionEvent.ACTION_DOWN -> {
                 stabilizer.reset(stageX, stageY)
                 val isEraser = (activeTool == StudioToolType.ERASER)
                 val size = if (isEraser) eraserSizePx else brushSizePx
-                val stroke = Stroke(
-                    color = brushColor,
-                    baseSize = size,
-                    isEraser = isEraser
-                )
+                val stroke = Stroke(color = brushColor, baseSize = size, isEraser = isEraser)
                 stroke.addPoint(stabilizer.smoothedX, stabilizer.smoothedY, pressure)
                 activeStroke = stroke
+
+                if (isVerticalSymmetryEnabled) {
+                    val mirrorX = (2f * stageCenterX) - stabilizer.smoothedX
+                    val mStroke = Stroke(color = brushColor, baseSize = size, isEraser = isEraser)
+                    mStroke.addPoint(mirrorX, stabilizer.smoothedY, pressure)
+                    activeMirrorStroke = mStroke
+                } else {
+                    activeMirrorStroke = null
+                }
                 invalidate()
             }
 
@@ -286,9 +385,11 @@ class AnimationCanvasView(
                     val hp = event.getHistoricalPressure(i).coerceIn(0.1f, 1.0f)
                     stabilizer.filter(hx, hy)
                     stroke.addPoint(stabilizer.smoothedX, stabilizer.smoothedY, hp)
+                    activeMirrorStroke?.addPoint((2f * stageCenterX) - stabilizer.smoothedX, stabilizer.smoothedY, hp)
                 }
                 stabilizer.filter(stageX, stageY)
                 stroke.addPoint(stabilizer.smoothedX, stabilizer.smoothedY, pressure)
+                activeMirrorStroke?.addPoint((2f * stageCenterX) - stabilizer.smoothedX, stabilizer.smoothedY, pressure)
                 invalidate()
             }
 
@@ -297,10 +398,17 @@ class AnimationCanvasView(
                 if (stroke != null) {
                     stabilizer.filter(stageX, stageY)
                     stroke.finishStroke(stabilizer.smoothedX, stabilizer.smoothedY)
-                    project.currentFrame.addStroke(stroke)
-                    frameCacheCanvas?.let { drawStrokeOntoCanvas(it, stroke) }
-                    project.currentFrame.isCacheDirty = false
+                    project.currentFrame.addStrokeToLayer(project.activeLayerIndex, stroke)
+
+                    activeMirrorStroke?.let { mStroke ->
+                        mStroke.finishStroke((2f * stageCenterX) - stabilizer.smoothedX, stabilizer.smoothedY)
+                        project.currentFrame.addStrokeToLayer(project.activeLayerIndex, mStroke)
+                    }
+
                     activeStroke = null
+                    activeMirrorStroke = null
+                    project.currentFrame.isCacheDirty = true
+                    triggerAutosave()
                     onStateChanged?.invoke()
                     invalidate()
                 }
@@ -309,13 +417,56 @@ class AnimationCanvasView(
         return true
     }
 
+    private fun sampleColorAtStagePoint(x: Int, y: Int) {
+        val bmp = compositeCacheBitmap ?: return
+        if (x in 0 until bmp.width && y in 0 until bmp.height) {
+            val pixel = bmp.getPixel(x, y)
+            if (Color.alpha(pixel) > 10) {
+                brushColor = Color.rgb(Color.red(pixel), Color.green(pixel), Color.blue(pixel))
+                onStateChanged?.invoke()
+            }
+        }
+    }
+
+    private fun performSmartBucketFillAt(x: Int, y: Int) {
+        if (x !in 0 until project.stageWidth || y !in 0 until project.stageHeight) return
+
+        ensureCachesAllocated()
+        val scratchCanvas = scratchLayerCanvas ?: return
+        val scratchBmp = scratchLayerBitmap ?: return
+
+        // Render the Reference Layer onto scratchBmp so Flood Fill respects reference line boundaries!
+        val refLayerIdx = project.getReferenceLayerIndex()
+        val refCel = project.currentFrame.getCel(refLayerIdx)
+        scratchCanvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
+        renderCelOntoCanvas(scratchCanvas, refCel, isAlphaLocked = false)
+
+        val targetCel = project.activeCel
+        targetCel.fillBitmap = SmartFloodFillEngine.performFloodFill(
+            referenceBitmap = scratchBmp,
+            targetFillBitmap = targetCel.fillBitmap,
+            stageWidth = project.stageWidth,
+            stageHeight = project.stageHeight,
+            seedX = x,
+            seedY = y,
+            fillColor = brushColor,
+            expandUnderLinePx = 1
+        )
+        targetCel.isCacheDirty = true
+        project.currentFrame.isCacheDirty = true
+        CrashReporter.logInfo("FillBucket", "Filled at ($x, $y) using Reference Layer #${refLayerIdx + 1}")
+        triggerAutosave()
+        onStateChanged?.invoke()
+        invalidate()
+    }
+
     private fun handleMultiTouchOrPanGesture(event: MotionEvent) {
         val action = event.actionMasked
         val pointerCount = event.pointerCount
 
-        // Cancel any unintentional half-started single-finger stroke when 2nd finger touches down
         if (activeStroke != null) {
             activeStroke = null
+            activeMirrorStroke = null
         }
 
         if (!isMultiTouchGesture) {
@@ -381,21 +532,19 @@ class AnimationCanvasView(
             }
 
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                finishMultiTouchGesture(event)
+                finishMultiTouchGesture()
             }
         }
     }
 
-    private fun finishMultiTouchGesture(event: MotionEvent) {
+    private fun finishMultiTouchGesture() {
         val duration = SystemClock.uptimeMillis() - gestureDownTimeMs
         if (duration <= StudioConfig.TWO_FINGER_TAP_MAX_DURATION_MS &&
             gestureMaxMoveDistancePx <= StudioConfig.TWO_FINGER_TAP_MAX_SLOP_PX
         ) {
             if (maxPointersInGesture == 2) {
-                // Two-finger quick tap -> Undo!
                 performUndo()
             } else if (maxPointersInGesture >= 3) {
-                // Three-finger quick tap -> Redo!
                 performRedo()
             }
         }
@@ -437,16 +586,16 @@ class AnimationCanvasView(
     // --- Public Studio Actions ---
 
     fun performUndo() {
-        if (project.currentFrame.undo()) {
-            CrashReporter.logInfo("Canvas", "Undo on frame ${project.currentFrameIndex + 1}")
+        if (project.currentFrame.undoOnLayer(project.activeLayerIndex)) {
+            triggerAutosave()
             onStateChanged?.invoke()
             invalidate()
         }
     }
 
     fun performRedo() {
-        if (project.currentFrame.redo()) {
-            CrashReporter.logInfo("Canvas", "Redo on frame ${project.currentFrameIndex + 1}")
+        if (project.currentFrame.redoOnLayer(project.activeLayerIndex)) {
+            triggerAutosave()
             onStateChanged?.invoke()
             invalidate()
         }
@@ -454,6 +603,7 @@ class AnimationCanvasView(
 
     fun togglePlayback() {
         isPlaying = !isPlaying
+        currentHoldTick = 0
         if (isPlaying) {
             lastPlaybackStepTimeMs = SystemClock.uptimeMillis()
             postInvalidateOnAnimation()
@@ -467,6 +617,7 @@ class AnimationCanvasView(
     fun pausePlayback() {
         if (isPlaying) {
             isPlaying = false
+            currentHoldTick = 0
             project.currentFrame.isCacheDirty = true
             onStateChanged?.invoke()
             invalidate()
@@ -485,7 +636,7 @@ class AnimationCanvasView(
         pausePlayback()
         project.addBlankFrameAfterCurrent()
         project.currentFrame.isCacheDirty = true
-        CrashReporter.logInfo("Timeline", "Added frame ${project.currentFrameIndex + 1}")
+        triggerAutosave()
         onStateChanged?.invoke()
         invalidate()
     }
@@ -494,7 +645,7 @@ class AnimationCanvasView(
         pausePlayback()
         project.duplicateCurrentFrame()
         project.currentFrame.isCacheDirty = true
-        CrashReporter.logInfo("Timeline", "Duplicated frame ${project.currentFrameIndex + 1}")
+        triggerAutosave()
         onStateChanged?.invoke()
         invalidate()
     }
@@ -503,7 +654,15 @@ class AnimationCanvasView(
         pausePlayback()
         project.deleteCurrentFrame()
         project.currentFrame.isCacheDirty = true
-        CrashReporter.logInfo("Timeline", "Deleted/Cleared frame ${project.currentFrameIndex + 1}")
+        triggerAutosave()
+        onStateChanged?.invoke()
+        invalidate()
+    }
+
+    fun cycleExposureHold() {
+        pausePlayback()
+        project.cycleCurrentFrameExposureHold()
+        triggerAutosave()
         onStateChanged?.invoke()
         invalidate()
     }
@@ -519,11 +678,22 @@ class AnimationCanvasView(
         invalidate()
     }
 
+    fun toggleVerticalSymmetry() {
+        isVerticalSymmetryEnabled = !isVerticalSymmetryEnabled
+        onStateChanged?.invoke()
+        invalidate()
+    }
+
+    fun triggerAutosave() {
+        CrashSafeAutosave.saveAsync(context, project)
+    }
+
     fun releaseMemory() {
-        frameCacheBitmap?.let {
-            if (!it.isRecycled) it.recycle()
-        }
-        frameCacheBitmap = null
-        frameCacheCanvas = null
+        compositeCacheBitmap?.let { if (!it.isRecycled) it.recycle() }
+        scratchLayerBitmap?.let { if (!it.isRecycled) it.recycle() }
+        compositeCacheBitmap = null
+        compositeCacheCanvas = null
+        scratchLayerBitmap = null
+        scratchLayerCanvas = null
     }
 }

@@ -3,59 +3,77 @@ package com.animationapp.model
 import com.animationapp.core.config.StudioConfig
 
 /**
- * Represents a single animation frame (Cel) with built-in Undo/Redo stacks
- * and exposure hold support (1s, 2s, 3s).
+ * Represents a vertical column in the timeline (a single Frame across multiple Layers).
+ *
+ * Supports Exposure Holds (1s, 2s, 3s, etc.) so holding a pose across multiple timeline ticks
+ * requires zero duplicated memory.
  */
 class AnimationFrame(
-    var exposureHold: Int = 1 // 1 = on 1s, 2 = on 2s, etc.
+    layerCount: Int = 2,
+    var exposureHold: Int = 1 // 1 = on 1s, 2 = on 2s, 3 = on 3s
 ) {
-    val strokes = ArrayList<Stroke>(32)
-    private val redoStack = ArrayList<Stroke>(16)
+    val cels = ArrayList<LayerCel>(layerCount)
 
-    // Flag indicating if offscreen bitmap cache for this frame needs rebuilding
+    // Flag indicating if composite frame cache needs rebuilding
     var isCacheDirty: Boolean = true
 
-    fun addStroke(stroke: Stroke) {
-        if (strokes.size >= StudioConfig.MAX_UNDO_HISTORY_STEPS * 4) {
-            // Keep memory bounded while allowing deep history
+    init {
+        for (i in 0 until layerCount) {
+            cels.add(LayerCel())
         }
-        strokes.add(stroke)
-        redoStack.clear()
+    }
+
+    fun getCel(layerIndex: Int): LayerCel {
+        while (cels.size <= layerIndex) {
+            cels.add(LayerCel())
+        }
+        return cels[layerIndex]
+    }
+
+    // Legacy convenience accessor for active layer strokes
+    val strokes: ArrayList<Stroke>
+        get() = getCel(0).strokes
+
+    fun addStrokeToLayer(layerIndex: Int, stroke: Stroke) {
+        getCel(layerIndex).addStroke(stroke)
         isCacheDirty = true
     }
 
-    fun canUndo(): Boolean = strokes.isNotEmpty()
-    fun canRedo(): Boolean = redoStack.isNotEmpty()
-
-    fun undo(): Boolean {
-        if (strokes.isEmpty()) return false
-        val removed = strokes.removeAt(strokes.lastIndex)
-        if (redoStack.size >= StudioConfig.MAX_UNDO_HISTORY_STEPS) {
-            redoStack.removeAt(0)
-        }
-        redoStack.add(removed)
-        isCacheDirty = true
-        return true
+    fun undoOnLayer(layerIndex: Int): Boolean {
+        val changed = getCel(layerIndex).undo()
+        if (changed) isCacheDirty = true
+        return changed
     }
 
-    fun redo(): Boolean {
-        if (redoStack.isEmpty()) return false
-        val restored = redoStack.removeAt(redoStack.lastIndex)
-        strokes.add(restored)
+    fun redoOnLayer(layerIndex: Int): Boolean {
+        val changed = getCel(layerIndex).redo()
+        if (changed) isCacheDirty = true
+        return changed
+    }
+
+    fun hasAnyContent(): Boolean {
+        for (i in 0 until cels.size) {
+            if (cels[i].strokes.isNotEmpty() || cels[i].fillBitmap != null) return true
+        }
+        return false
+    }
+
+    fun clearLayer(layerIndex: Int) {
+        getCel(layerIndex).clear()
         isCacheDirty = true
-        return true
     }
 
     fun clearAll() {
-        strokes.clear()
-        redoStack.clear()
+        for (i in 0 until cels.size) {
+            cels[i].clear()
+        }
         isCacheDirty = true
     }
 
     fun duplicate(): AnimationFrame {
-        val dup = AnimationFrame(exposureHold)
-        for (s in strokes) {
-            dup.strokes.add(s.deepCopy())
+        val dup = AnimationFrame(0, exposureHold)
+        for (i in 0 until cels.size) {
+            dup.cels.add(cels[i].duplicate())
         }
         dup.isCacheDirty = true
         return dup

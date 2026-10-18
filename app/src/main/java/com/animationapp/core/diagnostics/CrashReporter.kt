@@ -132,3 +132,4 @@ object CrashReporter {
         clipboard?.setPrimaryClip(ClipData.newPlainText("ProAnimationDiagnostics", text))
     }
 }
+

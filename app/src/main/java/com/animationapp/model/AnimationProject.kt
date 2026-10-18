@@ -4,8 +4,8 @@ import android.graphics.Color
 import com.animationapp.core.config.StudioConfig
 
 /**
- * Top-level animation project container managing stage dimensions, FPS, onion skinning settings,
- * and frame sequence.
+ * Top-level animation project container managing stage dimensions, FPS, Multi-Layer stack,
+ * Exposure Holds (1s/2s/3s), Reference Layer, and Onion Skinning.
  */
 class AnimationProject(
     val stageWidth: Int = StudioConfig.DEFAULT_STAGE_WIDTH,
@@ -13,8 +13,17 @@ class AnimationProject(
     var fps: Int = StudioConfig.DEFAULT_FPS,
     var stageBackgroundColor: Int = Color.WHITE
 ) {
+    // Default studio setup: Layer 0 = "Color Fill" (bottom), Layer 1 = "Ink Line-Art" (top, set as Reference)
+    val layers = ArrayList<AnimationLayer>().apply {
+        add(AnimationLayer(name = "Color Layer", isReferenceLayer = false))
+        add(AnimationLayer(name = "Line Art (Ref)", isReferenceLayer = true))
+    }
+
+    var activeLayerIndex: Int = 1 // Start on Line Art layer by default
+        private set
+
     val frames = ArrayList<AnimationFrame>().apply {
-        add(AnimationFrame())
+        add(AnimationFrame(layerCount = 2))
     }
 
     var currentFrameIndex: Int = 0
@@ -27,6 +36,53 @@ class AnimationProject(
     val currentFrame: AnimationFrame
         get() = frames[currentFrameIndex]
 
+    val activeLayer: AnimationLayer
+        get() = layers[activeLayerIndex.coerceIn(0, layers.lastIndex)]
+
+    val activeCel: LayerCel
+        get() = currentFrame.getCel(activeLayerIndex)
+
+    fun selectLayer(index: Int) {
+        if (layers.isEmpty()) return
+        activeLayerIndex = index.coerceIn(0, layers.lastIndex)
+    }
+
+    fun addLayer(name: String = "Layer ${layers.size + 1}"): Int {
+        val newLayer = AnimationLayer(name = name)
+        layers.add(newLayer)
+        val newIdx = layers.lastIndex
+        for (f in frames) {
+            f.getCel(newIdx)
+            f.isCacheDirty = true
+        }
+        activeLayerIndex = newIdx
+        return activeLayerIndex
+    }
+
+    fun deleteLayer(index: Int): Boolean {
+        if (layers.size <= 1 || index !in layers.indices) return false
+        layers.removeAt(index)
+        for (f in frames) {
+            if (index < f.cels.size) {
+                f.cels.removeAt(index)
+            }
+            f.isCacheDirty = true
+        }
+        activeLayerIndex = activeLayerIndex.coerceIn(0, layers.lastIndex)
+        return true
+    }
+
+    fun setReferenceLayer(index: Int) {
+        for (i in layers.indices) {
+            layers[i].isReferenceLayer = (i == index)
+        }
+    }
+
+    fun getReferenceLayerIndex(): Int {
+        val refIdx = layers.indexOfFirst { it.isReferenceLayer }
+        return if (refIdx >= 0) refIdx else activeLayerIndex
+    }
+
     fun selectFrame(index: Int) {
         if (frames.isEmpty()) return
         currentFrameIndex = index.coerceIn(0, frames.lastIndex)
@@ -34,7 +90,7 @@ class AnimationProject(
 
     fun addBlankFrameAfterCurrent(): Int {
         val insertIdx = (currentFrameIndex + 1).coerceAtMost(frames.size)
-        frames.add(insertIdx, AnimationFrame())
+        frames.add(insertIdx, AnimationFrame(layerCount = layers.size))
         currentFrameIndex = insertIdx
         return currentFrameIndex
     }
@@ -49,7 +105,6 @@ class AnimationProject(
 
     fun deleteCurrentFrame(): Boolean {
         if (frames.size <= 1) {
-            // If only 1 frame exists, clear it instead of leaving 0 frames
             currentFrame.clearAll()
             return true
         }
@@ -58,6 +113,17 @@ class AnimationProject(
             currentFrameIndex = frames.lastIndex
         }
         return true
+    }
+
+    fun cycleCurrentFrameExposureHold(): Int {
+        val nextHold = when (currentFrame.exposureHold) {
+            1 -> 2
+            2 -> 3
+            3 -> 4
+            else -> 1
+        }
+        currentFrame.exposureHold = nextHold
+        return nextHold
     }
 
     fun stepForwardLooping(): Int {

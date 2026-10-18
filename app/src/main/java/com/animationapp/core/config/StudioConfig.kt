@@ -42,3 +42,4 @@ object StudioConfig {
     const val INITIAL_STROKE_FLOAT_CAPACITY = 256 // 64 points * 4 floats (x, y, pressure, width)
     const val LOW_RAM_WARNING_MB = 180L
 }
+

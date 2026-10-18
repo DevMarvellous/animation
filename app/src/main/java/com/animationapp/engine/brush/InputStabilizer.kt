@@ -32,3 +32,4 @@ class InputStabilizer {
         smoothedY += (rawY - smoothedY) * alpha
     }
 }
+

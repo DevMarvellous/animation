@@ -6,5 +6,7 @@ package com.animationapp.engine.tools
 enum class StudioToolType(val label: String) {
     BRUSH("Pen"),
     ERASER("Eraser"),
+    FILL_BUCKET("Fill"),
+    EYEDROPPER("Picker"),
     HAND_PAN("Pan/Zoom")
 }

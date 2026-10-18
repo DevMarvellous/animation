@@ -81,3 +81,4 @@ class PerformanceHud {
         return bounds.contains(touchX, touchY)
     }
 }
+
