@@ -7,30 +7,41 @@ import android.os.Bundle
 import android.view.View
 import android.view.WindowInsets
 import android.view.WindowInsetsController
-import android.view.WindowManager
-import com.animationapp.engine.AnimationCanvasView
+import com.animationapp.core.diagnostics.CrashReporter
+import com.animationapp.ui.workspace.StudioWorkspaceLayout
 
 /**
- * Ultra-lightweight native Android Activity (uses direct android.app.Activity instead of heavy AppCompat
- * to save ~1.5MB of APK size and ~15MB of baseline RAM on budget phones).
+ * Ultra-lightweight native Android Activity.
+ *
+ * Uses direct android.app.Activity (zero AppCompat/Compose bloat), negotiates 90Hz/120Hz display refresh rate,
+ * installs our In-App Crash & Diagnostics Catcher, and hosts the modular StudioWorkspaceLayout.
  */
 class MainActivity : Activity() {
 
-    private var canvasView: AnimationCanvasView? = null
+    private var workspaceLayout: StudioWorkspaceLayout? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Enable high refresh rate (90Hz / 120Hz) if supported by the device display
+        // 1. Install In-App Crash Catcher so we never need local Android Studio Logcat
+        CrashReporter.install(this)
+
+        // 2. Request highest display refresh rate (90Hz / 120Hz) where supported
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             window.attributes.preferredDisplayModeId = getHighestRefreshRateModeId()
         }
 
-        val view = AnimationCanvasView(this)
-        canvasView = view
-        setContentView(view)
+        // 3. Mount modular Studio Workspace UI
+        val layout = StudioWorkspaceLayout(this)
+        workspaceLayout = layout
+        setContentView(layout)
 
         enableImmersiveFullscreen()
+
+        // 4. Check if a crash occurred in a previous session and offer 1-tap copy
+        window.decorView.post {
+            CrashReporter.checkAndShowPendingCrashReport(this)
+        }
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -77,16 +88,15 @@ class MainActivity : Activity() {
 
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
-        // Proactively respond to Android OS memory pressure on low-end devices
         if (level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL) {
+            CrashReporter.logInfo("Memory", "OS reported critical low memory (level=$level)")
             System.gc()
         }
     }
 
     override fun onDestroy() {
-        canvasView?.releaseMemory()
-        canvasView = null
+        workspaceLayout?.canvasView?.releaseMemory()
+        workspaceLayout = null
         super.onDestroy()
     }
 }
-

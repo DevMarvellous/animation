@@ -5,187 +5,525 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
-import android.graphics.Path
+import android.graphics.PorterDuff
+import android.graphics.PorterDuffXfermode
+import android.graphics.RectF
 import android.os.SystemClock
 import android.view.MotionEvent
 import android.view.View
-import kotlin.math.abs
+import com.animationapp.core.config.StudioConfig
+import com.animationapp.core.diagnostics.CrashReporter
+import com.animationapp.core.profiler.PerformanceHud
+import com.animationapp.engine.brush.InputStabilizer
+import com.animationapp.engine.canvas.ViewportController
+import com.animationapp.engine.onion.OnionSkinRenderer
+import com.animationapp.engine.tools.StudioToolType
+import com.animationapp.model.AnimationProject
+import com.animationapp.model.Stroke
+import kotlin.math.atan2
+import kotlin.math.hypot
 
 /**
- * Hardware-accelerated, zero-allocation 2D animation canvas engine prototype.
+ * Hardware-accelerated, zero-allocation 2D animation stage & viewport engine.
  *
- * Designed specifically for smooth 60-120 FPS drawing on low-end Android phones:
- * 1. Pre-allocates all Paint, Path, and telemetry buffers (zero garbage collection inside onDraw).
- * 2. Uses MotionEvent historical coordinates (getHistoricalX/Y) for high-precision curves on budget digitizers.
- * 3. Caches completed strokes directly to an offscreen Bitmap buffer so drawing complexity stays O(1)
- *    even after 10,000+ brush strokes.
+ * Capabilities:
+ * - Multi-touch Pan, Pinch-to-Zoom (15% to 3200%), Two-Finger Canvas Rotation, and Horizontal Mirror Flip.
+ * - Two-Finger Quick Tap for instant Undo; Three-Finger Quick Tap for instant Redo.
+ * - Input Stabilizer (Lazy-Mouse / Exponential Moving Average) for silky lines on budget screens.
+ * - Offscreen Frame Bitmap Cache so completed strokes render in O(1) time.
+ * - Tinted Past (Ruby Red) & Future (Cyan) Multi-Frame Onion Skinning.
+ * - Real-time FPS / RAM / Frame / Zoom HUD (tap HUD to open Live Diagnostics).
  */
-class AnimationCanvasView(context: Context) : View(context) {
+class AnimationCanvasView(
+    context: Context,
+    val project: AnimationProject = AnimationProject()
+) : View(context) {
 
-    // Offscreen layer bitmap cache (prevents re-tessellating thousands of paths every frame)
-    private var layerBitmap: Bitmap? = null
-    private var layerCanvas: Canvas? = null
+    var onStateChanged: (() -> Unit)? = null
+    var onDiagnosticsRequested: (() -> Unit)? = null
 
-    // Active stroke path (reused across strokes to avoid object allocation)
-    private val activePath = Path()
+    val viewport = ViewportController()
+    val stabilizer = InputStabilizer()
+    private val onionSkinRenderer = OnionSkinRenderer()
+    val performanceHud = PerformanceHud()
 
-    // Pre-allocated Paint for drawing strokes
-    private val strokePaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.DITHER_FLAG).apply {
+    // Active Tool & Brush Settings
+    var activeTool: StudioToolType = StudioToolType.BRUSH
+    var brushColor: Int = Color.rgb(20, 22, 28)
+    var brushSizePx: Float = StudioConfig.DEFAULT_BRUSH_SIZE_PX
+    var eraserSizePx: Float = StudioConfig.DEFAULT_ERASER_SIZE_PX
+
+    // Playback loop state
+    var isPlaying: Boolean = false
+        private set
+    private var lastPlaybackStepTimeMs = 0L
+
+    // Offscreen Bitmap Cache for current active frame
+    private var frameCacheBitmap: Bitmap? = null
+    private var frameCacheCanvas: Canvas? = null
+
+    // Pre-allocated Paints & Rects (Zero allocations in onDraw)
+    private val workspaceBgColor = Color.rgb(18, 19, 24)
+    private val stagePaperPaint = Paint().apply {
         color = Color.WHITE
+        style = Paint.Style.FILL
+    }
+    private val stageBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.rgb(55, 60, 75)
+        style = Paint.Style.STROKE
+        strokeWidth = 3f
+    }
+    private val strokePaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.DITHER_FLAG).apply {
         style = Paint.Style.STROKE
         strokeJoin = Paint.Join.ROUND
         strokeCap = Paint.Cap.ROUND
-        strokeWidth = 10f
+    }
+    private val eraserXfermode = PorterDuffXfermode(PorterDuff.Mode.CLEAR)
+    private val stageRect = RectF(
+        0f,
+        0f,
+        project.stageWidth.toFloat(),
+        project.stageHeight.toFloat()
+    )
+
+    // Active stroke in progress
+    private var activeStroke: Stroke? = null
+
+    // Multi-touch gesture tracking (primitive floats to avoid allocations)
+    private var isMultiTouchGesture = false
+    private var maxPointersInGesture = 0
+    private var gestureDownTimeMs = 0L
+    private var gestureMaxMoveDistancePx = 0f
+    private var prevFocalX = 0f
+    private var prevFocalY = 0f
+    private var prevSpan = 0f
+    private var prevAngleDeg = 0f
+
+    init {
+        ensureFrameCacheAllocated()
     }
 
-    // Pre-allocated Paint for canvas background & UI HUD
-    private val hudPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.rgb(0, 255, 163)
-        textSize = 32f
-        isFakeBoldText = true
+    private fun ensureFrameCacheAllocated() {
+        val currentBmp = frameCacheBitmap
+        if (currentBmp == null || currentBmp.isRecycled ||
+            currentBmp.width != project.stageWidth || currentBmp.height != project.stageHeight
+        ) {
+            currentBmp?.let { if (!it.isRecycled) it.recycle() }
+            val bmp = Bitmap.createBitmap(
+                project.stageWidth,
+                project.stageHeight,
+                Bitmap.Config.ARGB_8888
+            )
+            frameCacheBitmap = bmp
+            frameCacheCanvas = Canvas(bmp)
+            project.currentFrame.isCacheDirty = true
+        }
     }
 
-    private val hudBgPaint = Paint().apply {
-        color = Color.argb(180, 18, 18, 24)
-        style = Paint.Style.FILL
+    private fun rebuildFrameCacheIfNeeded() {
+        val frame = project.currentFrame
+        if (!frame.isCacheDirty) return
+
+        ensureFrameCacheAllocated()
+        val cacheCanvas = frameCacheCanvas ?: return
+        cacheCanvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
+
+        val strokes = frame.strokes
+        for (i in 0 until strokes.size) {
+            drawStrokeOntoCanvas(cacheCanvas, strokes[i])
+        }
+        frame.isCacheDirty = false
     }
 
-    // Touch state tracking (primitive floats to avoid boxing)
-    private var lastTouchX = 0f
-    private var lastTouchY = 0f
-    private var isDrawing = false
-    private var strokeCount = 0
-
-    // Real-time FPS & RAM telemetry (updated without per-frame string allocations where possible)
-    private var lastFrameTimeMs = SystemClock.uptimeMillis()
-    private var frameCounter = 0
-    private var currentFps = 60
-    private var usedRamMb = 0L
-    private var hudText = "FPS: -- | RAM: -- MB | Strokes: 0"
+    private fun drawStrokeOntoCanvas(targetCanvas: Canvas, stroke: Stroke) {
+        if (stroke.isEraser) {
+            strokePaint.xfermode = eraserXfermode
+            strokePaint.strokeWidth = stroke.baseSize
+            strokePaint.color = Color.TRANSPARENT
+        } else {
+            strokePaint.xfermode = null
+            strokePaint.color = stroke.color
+            strokePaint.strokeWidth = stroke.baseSize
+        }
+        targetCanvas.drawPath(stroke.renderPath, strokePaint)
+        strokePaint.xfermode = null
+    }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
-        if (w <= 0 || h <= 0) return
-
-        // Recycle previous bitmap if screen resized
-        val oldBitmap = layerBitmap
-        // ARGB_8888 for active transparent layer
-        val newBitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-        val newCanvas = Canvas(newBitmap)
-        newCanvas.drawColor(Color.rgb(24, 24, 30)) // Dark pro studio background
-
-        if (oldBitmap != null && !oldBitmap.isRecycled) {
-            newCanvas.drawBitmap(oldBitmap, 0f, 0f, null)
-            oldBitmap.recycle()
+        if (w > 0 && h > 0) {
+            viewport.fitStageToViewport(w, h, project.stageWidth, project.stageHeight)
         }
-
-        layerBitmap = newBitmap
-        layerCanvas = newCanvas
-        updateTelemetry( forceUpdate = true )
     }
 
     override fun onDraw(canvas: Canvas) {
-        // 1. Draw cached offscreen layer bitmap in O(1) time
-        layerBitmap?.let { bmp ->
+        // 1. Advance timeline playback if playing
+        if (isPlaying) {
+            val now = SystemClock.uptimeMillis()
+            val frameDurationMs = (1000L / project.fps.coerceAtLeast(1))
+            if (now - lastPlaybackStepTimeMs >= frameDurationMs) {
+                lastPlaybackStepTimeMs = now
+                project.stepForwardLooping()
+                project.currentFrame.isCacheDirty = true
+                onStateChanged?.invoke()
+            }
+        }
+
+        // 2. Draw dark studio workspace background
+        canvas.drawColor(workspaceBgColor)
+
+        // 3. Apply camera viewport transform (Pan, Zoom, Rotate, Mirror)
+        canvas.save()
+        canvas.concat(viewport.viewMatrix)
+
+        // 4. Draw animation stage paper & subtle border
+        stagePaperPaint.color = project.stageBackgroundColor
+        canvas.drawRect(stageRect, stagePaperPaint)
+        canvas.drawRect(stageRect, stageBorderPaint)
+
+        // Clip drawing strictly to the stage bounds
+        canvas.clipRect(stageRect)
+
+        // 5. Draw multi-frame tinted Onion Skins (only when paused for max playback speed)
+        if (!isPlaying && project.isOnionSkinEnabled) {
+            onionSkinRenderer.drawOnionSkins(canvas, project)
+        }
+
+        // 6. Draw cached active frame bitmap in O(1)
+        rebuildFrameCacheIfNeeded()
+        frameCacheBitmap?.let { bmp ->
             if (!bmp.isRecycled) {
                 canvas.drawBitmap(bmp, 0f, 0f, null)
             }
         }
 
-        // 2. Draw only the currently active stroke on top
-        if (isDrawing) {
-            canvas.drawPath(activePath, strokePaint)
+        // 7. Draw active stroke currently being drawn
+        activeStroke?.let { stroke ->
+            if (stroke.isEraser) {
+                // Visual preview ring/trail for eraser before baking into cache
+                strokePaint.xfermode = null
+                strokePaint.color = Color.WHITE
+                strokePaint.strokeWidth = stroke.baseSize
+                canvas.drawPath(stroke.renderPath, strokePaint)
+            } else {
+                drawStrokeOntoCanvas(canvas, stroke)
+            }
         }
 
-        // 3. Draw lightweight performance HUD overlay (top-left)
-        updateTelemetry(forceUpdate = false)
-        canvas.drawRoundRect(20f, 20f, 640f, 84f, 12f, 12f, hudBgPaint)
-        canvas.drawText(hudText, 40f, 62f, hudPaint)
+        canvas.restore()
+
+        // 8. Draw live Performance HUD in top-left (below top bar)
+        performanceHud.recordFrameAndDraw(
+            canvas = canvas,
+            x = 16f,
+            y = 82f,
+            frameIndex = project.currentFrameIndex,
+            totalFrames = project.frames.size,
+            zoomPercent = (viewport.zoomScale * 100f).toInt()
+        )
+
+        if (isPlaying) {
+            postInvalidateOnAnimation()
+        }
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        val x = event.x
-        val y = event.y
+        val action = event.actionMasked
+        val pointerCount = event.pointerCount
 
-        when (event.actionMasked) {
-            MotionEvent.ACTION_DOWN -> {
-                activePath.reset()
-                activePath.moveTo(x, y)
-                lastTouchX = x
-                lastTouchY = y
-                isDrawing = true
-                invalidate()
+        // Check if user tapped the Performance HUD to open Live Diagnostics
+        if (action == MotionEvent.ACTION_DOWN && pointerCount == 1) {
+            if (performanceHud.hitTest(event.x, event.y)) {
+                onDiagnosticsRequested?.invoke()
                 return true
+            }
+        }
+
+        // Handle Multi-Touch (2+ fingers: Pinch Zoom, Two-Finger Pan, Rotate, or 2/3-finger Tap Undo/Redo)
+        if (pointerCount >= 2 || activeTool == StudioToolType.HAND_PAN) {
+            handleMultiTouchOrPanGesture(event)
+            return true
+        }
+
+        // If transitioning out of a multi-touch gesture, ignore trailing single finger until UP
+        if (isMultiTouchGesture) {
+            if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
+                finishMultiTouchGesture(event)
+            }
+            return true
+        }
+
+        // Single-finger / Stylus Drawing
+        if (isPlaying) {
+            pausePlayback()
+        }
+
+        val stageX = viewport.screenToStageX(event.x, event.y)
+        val stageY = viewport.screenToStageY(event.x, event.y)
+        val pressure = event.pressure.coerceIn(0.1f, 1.0f)
+
+        when (action) {
+            MotionEvent.ACTION_DOWN -> {
+                stabilizer.reset(stageX, stageY)
+                val isEraser = (activeTool == StudioToolType.ERASER)
+                val size = if (isEraser) eraserSizePx else brushSizePx
+                val stroke = Stroke(
+                    color = brushColor,
+                    baseSize = size,
+                    isEraser = isEraser
+                )
+                stroke.addPoint(stabilizer.smoothedX, stabilizer.smoothedY, pressure)
+                activeStroke = stroke
+                invalidate()
             }
 
             MotionEvent.ACTION_MOVE -> {
-                // Process historical batched points for silky-smooth curves on budget screens
+                val stroke = activeStroke ?: return true
                 val historySize = event.historySize
                 for (i in 0 until historySize) {
-                    val hx = event.getHistoricalX(i)
-                    val hy = event.getHistoricalY(i)
-                    addQuadraticPoint(hx, hy)
+                    val hx = viewport.screenToStageX(event.getHistoricalX(i), event.getHistoricalY(i))
+                    val hy = viewport.screenToStageY(event.getHistoricalX(i), event.getHistoricalY(i))
+                    val hp = event.getHistoricalPressure(i).coerceIn(0.1f, 1.0f)
+                    stabilizer.filter(hx, hy)
+                    stroke.addPoint(stabilizer.smoothedX, stabilizer.smoothedY, hp)
                 }
-                addQuadraticPoint(x, y)
+                stabilizer.filter(stageX, stageY)
+                stroke.addPoint(stabilizer.smoothedX, stabilizer.smoothedY, pressure)
                 invalidate()
-                return true
             }
 
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                if (isDrawing) {
-                    activePath.lineTo(x, y)
-                    // Bake finished stroke into the offscreen bitmap cache
-                    layerCanvas?.drawPath(activePath, strokePaint)
-                    activePath.reset()
-                    isDrawing = false
-                    strokeCount++
-                    updateTelemetry(forceUpdate = true)
+                val stroke = activeStroke
+                if (stroke != null) {
+                    stabilizer.filter(stageX, stageY)
+                    stroke.finishStroke(stabilizer.smoothedX, stabilizer.smoothedY)
+                    project.currentFrame.addStroke(stroke)
+                    frameCacheCanvas?.let { drawStrokeOntoCanvas(it, stroke) }
+                    project.currentFrame.isCacheDirty = false
+                    activeStroke = null
+                    onStateChanged?.invoke()
                     invalidate()
                 }
-                return true
             }
         }
-        return super.onTouchEvent(event)
+        return true
     }
 
-    private fun addQuadraticPoint(x: Float, y: Float) {
-        val dx = abs(x - lastTouchX)
-        val dy = abs(y - lastTouchY)
-        if (dx >= 2f || dy >= 2f) {
-            val midX = (x + lastTouchX) * 0.5f
-            val midY = (y + lastTouchY) * 0.5f
-            activePath.quadTo(lastTouchX, lastTouchY, midX, midY)
-            lastTouchX = x
-            lastTouchY = y
+    private fun handleMultiTouchOrPanGesture(event: MotionEvent) {
+        val action = event.actionMasked
+        val pointerCount = event.pointerCount
+
+        // Cancel any unintentional half-started single-finger stroke when 2nd finger touches down
+        if (activeStroke != null) {
+            activeStroke = null
         }
-    }
 
-    private fun updateTelemetry(forceUpdate: Boolean) {
-        frameCounter++
-        val now = SystemClock.uptimeMillis()
-        val elapsed = now - lastFrameTimeMs
-        if (elapsed >= 500L || forceUpdate) {
-            if (elapsed > 0) {
-                currentFps = ((frameCounter * 1000L) / elapsed).toInt()
+        if (!isMultiTouchGesture) {
+            isMultiTouchGesture = true
+            maxPointersInGesture = pointerCount
+            gestureDownTimeMs = SystemClock.uptimeMillis()
+            gestureMaxMoveDistancePx = 0f
+            prevFocalX = computeFocalX(event)
+            prevFocalY = computeFocalY(event)
+            prevSpan = computeSpan(event, prevFocalX, prevFocalY)
+            prevAngleDeg = computeAngleDeg(event)
+            return
+        }
+
+        if (pointerCount > maxPointersInGesture) {
+            maxPointersInGesture = pointerCount
+        }
+
+        when (action) {
+            MotionEvent.ACTION_POINTER_DOWN, MotionEvent.ACTION_POINTER_UP -> {
+                prevFocalX = computeFocalX(event)
+                prevFocalY = computeFocalY(event)
+                prevSpan = computeSpan(event, prevFocalX, prevFocalY)
+                prevAngleDeg = computeAngleDeg(event)
             }
-            frameCounter = 0
-            lastFrameTimeMs = now
 
-            val runtime = Runtime.getRuntime()
-            usedRamMb = (runtime.totalMemory() - runtime.freeMemory()) / (1024 * 1024)
-            hudText = "FPS: $currentFps | RAM: ${usedRamMb}MB | Strokes: $strokeCount"
+            MotionEvent.ACTION_MOVE -> {
+                val focusX = computeFocalX(event)
+                val focusY = computeFocalY(event)
+                val dx = focusX - prevFocalX
+                val dy = focusY - prevFocalY
+                gestureMaxMoveDistancePx += hypot(dx, dy)
+
+                var scaleFactor = 1.0f
+                var deltaAngle = 0.0f
+
+                if (pointerCount >= 2) {
+                    val span = computeSpan(event, focusX, focusY)
+                    if (prevSpan > 10f && span > 10f) {
+                        scaleFactor = span / prevSpan
+                    }
+                    val angle = computeAngleDeg(event)
+                    deltaAngle = angle - prevAngleDeg
+                    if (deltaAngle > 180f) deltaAngle -= 360f
+                    if (deltaAngle < -180f) deltaAngle += 360f
+
+                    prevSpan = span
+                    prevAngleDeg = angle
+                }
+
+                viewport.applyPanZoomRotate(
+                    panDx = dx,
+                    panDy = dy,
+                    scaleFactor = scaleFactor,
+                    deltaDegrees = deltaAngle,
+                    focusX = focusX,
+                    focusY = focusY
+                )
+
+                prevFocalX = focusX
+                prevFocalY = focusY
+                invalidate()
+            }
+
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                finishMultiTouchGesture(event)
+            }
         }
     }
 
-    /**
-     * Releases native pixel memory immediately when view is detached or low memory occurs.
-     */
+    private fun finishMultiTouchGesture(event: MotionEvent) {
+        val duration = SystemClock.uptimeMillis() - gestureDownTimeMs
+        if (duration <= StudioConfig.TWO_FINGER_TAP_MAX_DURATION_MS &&
+            gestureMaxMoveDistancePx <= StudioConfig.TWO_FINGER_TAP_MAX_SLOP_PX
+        ) {
+            if (maxPointersInGesture == 2) {
+                // Two-finger quick tap -> Undo!
+                performUndo()
+            } else if (maxPointersInGesture >= 3) {
+                // Three-finger quick tap -> Redo!
+                performRedo()
+            }
+        }
+        isMultiTouchGesture = false
+        maxPointersInGesture = 0
+        invalidate()
+    }
+
+    private fun computeFocalX(event: MotionEvent): Float {
+        var sum = 0f
+        val count = event.pointerCount
+        for (i in 0 until count) sum += event.getX(i)
+        return sum / count
+    }
+
+    private fun computeFocalY(event: MotionEvent): Float {
+        var sum = 0f
+        val count = event.pointerCount
+        for (i in 0 until count) sum += event.getY(i)
+        return sum / count
+    }
+
+    private fun computeSpan(event: MotionEvent, focusX: Float, focusY: Float): Float {
+        var sum = 0f
+        val count = event.pointerCount
+        for (i in 0 until count) {
+            sum += hypot(event.getX(i) - focusX, event.getY(i) - focusY)
+        }
+        return sum / count
+    }
+
+    private fun computeAngleDeg(event: MotionEvent): Float {
+        if (event.pointerCount < 2) return 0f
+        val dx = event.getX(1) - event.getX(0)
+        val dy = event.getY(1) - event.getY(0)
+        return Math.toDegrees(atan2(dy.toDouble(), dx.toDouble())).toFloat()
+    }
+
+    // --- Public Studio Actions ---
+
+    fun performUndo() {
+        if (project.currentFrame.undo()) {
+            CrashReporter.logInfo("Canvas", "Undo on frame ${project.currentFrameIndex + 1}")
+            onStateChanged?.invoke()
+            invalidate()
+        }
+    }
+
+    fun performRedo() {
+        if (project.currentFrame.redo()) {
+            CrashReporter.logInfo("Canvas", "Redo on frame ${project.currentFrameIndex + 1}")
+            onStateChanged?.invoke()
+            invalidate()
+        }
+    }
+
+    fun togglePlayback() {
+        isPlaying = !isPlaying
+        if (isPlaying) {
+            lastPlaybackStepTimeMs = SystemClock.uptimeMillis()
+            postInvalidateOnAnimation()
+        } else {
+            project.currentFrame.isCacheDirty = true
+            invalidate()
+        }
+        onStateChanged?.invoke()
+    }
+
+    fun pausePlayback() {
+        if (isPlaying) {
+            isPlaying = false
+            project.currentFrame.isCacheDirty = true
+            onStateChanged?.invoke()
+            invalidate()
+        }
+    }
+
+    fun selectFrame(index: Int) {
+        pausePlayback()
+        project.selectFrame(index)
+        project.currentFrame.isCacheDirty = true
+        onStateChanged?.invoke()
+        invalidate()
+    }
+
+    fun addBlankFrame() {
+        pausePlayback()
+        project.addBlankFrameAfterCurrent()
+        project.currentFrame.isCacheDirty = true
+        CrashReporter.logInfo("Timeline", "Added frame ${project.currentFrameIndex + 1}")
+        onStateChanged?.invoke()
+        invalidate()
+    }
+
+    fun duplicateCurrentFrame() {
+        pausePlayback()
+        project.duplicateCurrentFrame()
+        project.currentFrame.isCacheDirty = true
+        CrashReporter.logInfo("Timeline", "Duplicated frame ${project.currentFrameIndex + 1}")
+        onStateChanged?.invoke()
+        invalidate()
+    }
+
+    fun deleteCurrentFrame() {
+        pausePlayback()
+        project.deleteCurrentFrame()
+        project.currentFrame.isCacheDirty = true
+        CrashReporter.logInfo("Timeline", "Deleted/Cleared frame ${project.currentFrameIndex + 1}")
+        onStateChanged?.invoke()
+        invalidate()
+    }
+
+    fun fitStageToScreen() {
+        viewport.fitStageToViewport(width, height, project.stageWidth, project.stageHeight)
+        invalidate()
+    }
+
+    fun toggleMirrorHorizontal() {
+        viewport.toggleHorizontalMirror()
+        onStateChanged?.invoke()
+        invalidate()
+    }
+
     fun releaseMemory() {
-        layerBitmap?.let {
+        frameCacheBitmap?.let {
             if (!it.isRecycled) it.recycle()
         }
-        layerBitmap = null
-        layerCanvas = null
+        frameCacheBitmap = null
+        frameCacheCanvas = null
     }
 }
-

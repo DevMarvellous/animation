@@ -17,14 +17,23 @@
 ---
 
 ## 2. Current Project Status & Completed Milestones
-- **Current Phase**: Phase 1 Completed → Moving to Phase 2 (Modular Engine Architecture + Canvas Navigation + Core Tool System).
+- **Current Phase**: Phase 2 & 3 Core Studio Engine Completed → Ready for Phase 4 (Multi-Layer Stack, Smart Gap-Closing Paint Bucket, Lasso/Transform, & Atomic Disk Autosave).
+- **GitHub Actions Status**: Verified GREEN (`conclusion: success`) on `https://github.com/DevMarvellous/animation/actions`.
 - **What Exists Right Now**:
   - `.github/workflows/build-apk.yml`: Cloud CI/CD building both `Debug` and R8-optimized `Release` APKs on every push to `main`.
-  - `build.gradle.kts`, `settings.gradle.kts`, `gradle.properties`: Configured with AGP `8.7.3`, Kotlin `2.1.0`, Java 17, and `android.enableR8.fullMode=true`.
-  - `app/build.gradle.kts` & `app/proguard-rules.pro`: Zero external library bloat, aggressive 5-pass R8 code shrinking, stripped Kotlin runtime assertions.
-  - `app/src/main/AndroidManifest.xml`: Configured with `hardwareAccelerated="true"`, `largeHeap="true"`, and landscape immersive studio layout.
-  - `app/src/main/java/com/animationapp/MainActivity.kt`: Native `Activity` with 90Hz/120Hz display refresh rate negotiation, sticky immersive fullscreen, and `onTrimMemory` handling.
-  - `app/src/main/java/com/animationapp/engine/AnimationCanvasView.kt`: Initial hardware-accelerated drawing view with zero-allocation `onDraw`, historical touch smoothing (`getHistoricalX/Y`), offscreen `Bitmap` caching, and a real-time **FPS / RAM (MB) / Stroke Count HUD**.
+  - `core/config/StudioConfig.kt`: Central tuning constants for stage resolution, zoom limits, stabilizer strength, onion skin colors, and undo caps.
+  - `core/diagnostics/CrashReporter.kt`: In-App Crash Catcher & Live Diagnostics dialog with one-tap "Copy Report" to clipboard (eliminates need for local Android Studio Logcat).
+  - `core/profiler/PerformanceHud.kt`: Zero-allocation real-time FPS, Heap RAM, Frame index, and Zoom % HUD overlay.
+  - `model/Stroke.kt`: Primitive `FloatArray`-backed stroke model (zero `Point` object overhead) with cached hardware `Path`.
+  - `model/AnimationFrame.kt`: Cel model with per-frame Undo/Redo stacks, dirty cache tracking, and frame duplication.
+  - `model/AnimationProject.kt`: Stage container managing frames, FPS (8/12/24/30/60), and onion skin range.
+  - `engine/brush/InputStabilizer.kt`: Real-time Lazy-Mouse / Streamline exponential smoothing filter for shaky budget touchscreens.
+  - `engine/canvas/ViewportController.kt`: Pre-allocated forward/inverse `Matrix` camera controller for Pan, Pinch-Zoom (15%–3200%), Two-Finger Rotate, and Horizontal Mirror Flip.
+  - `engine/onion/OnionSkinRenderer.kt`: Multi-frame tinted Onion Skin renderer (Ruby Red past frames, Cobalt Cyan future frames).
+  - `engine/tools/StudioToolType.kt`: Pluggable tool enum (`BRUSH`, `ERASER`, `HAND_PAN`).
+  - `engine/AnimationCanvasView.kt`: Full stage engine with 2-finger tap Undo, 3-finger tap Redo, offscreen bitmap frame caching, and real-time playback loop.
+  - `ui/workspace/StudioWorkspaceLayout.kt`: Zero-bloat programmatic native Studio UI with Top Action Bar, Left/Right-Handed dockable Tool & Color Bar, Brush/Stabilizer Studio dialog, and Bottom Timeline Scrubber.
+  - `MainActivity.kt`: Native `Activity` mounting `StudioWorkspaceLayout` with 90Hz/120Hz display refresh rate negotiation and `CrashReporter`.
 
 ---
 
@@ -36,30 +45,24 @@ com.animationapp/
 ├── MainActivity.kt                  # App entry point, lifecycle, memory trim, crash recovery
 ├── core/
 │   ├── config/StudioConfig.kt       # Central tuning constants (max undo, tile sizes, RAM thresholds)
-│   ├── profiler/PerformanceHud.kt   # FPS, frame-time (ms), RAM heap, native heap, thermal state
-│   ├── command/CommandManager.kt    # Delta-based Undo/Redo command pattern (memory-capped)
-│   └── storage/CrashSafeAutosave.kt # Background atomic autosave after every stroke/action
+│   ├── diagnostics/CrashReporter.kt # In-app crash catcher & live log viewer with clipboard copy
+│   ├── profiler/PerformanceHud.kt   # FPS, frame-time (ms), RAM heap, frame & zoom counter
+│   └── storage/CrashSafeAutosave.kt # (Next) Background atomic autosave after every stroke/action
 ├── model/
-│   ├── Project.kt                   # Resolution, FPS (12/24/30/60), background color, scenes
-│   ├── Layer.kt                     # VectorLayer, RasterLayer, AudioLayer, CameraLayer, FolderGroup
-│   ├── Frame.kt                     # Exposure holds (1s, 2s, 3s), cel links, disk cache key
-│   └── Stroke.kt                    # Packed FloatArray coordinates (x, y, pressure, tilt, timestamp)
+│   ├── AnimationProject.kt          # Resolution, FPS (8/12/24/30/60), background color, frame list
+│   ├── AnimationFrame.kt            # Frame strokes, undo/redo stacks, exposure hold, dirty flag
+│   ├── Layer.kt                     # (Next) VectorLayer, RasterLayer, AudioLayer, CameraLayer
+│   └── Stroke.kt                    # Packed FloatArray coordinates (x, y, pressure)
 ├── engine/
-│   ├── canvas/                      # Viewport matrix (pan/zoom/rotate), tile cache, dirty-rect renderer
-│   ├── brush/                       # Pluggable Brush interface, Stabilizer (Lazy-Mouse), Pressure Curve
-│   ├── tools/                       # Pluggable Tool interface (Pen, Eraser, Bucket, Lasso, Mesh, Bone)
-│   ├── onion/                       # Multi-frame tinted Onion Skinning & Shift-and-Trace (Light Table)
-│   ├── tween/                       # Keyframes, Bézier Graph Editor, 2D IK/FK Bones, Camera paths
-│   └── memory/                      # LruTileCache, RGB_565 flattening, DiskSwapManager (WebP/LZ4)
-├── audio/
-│   ├── AudioTrackEngine.kt          # Multi-track audio decoding, low-latency frame scrubbing, waveforms
-├── export/
-│   ├── HardwareVideoExporter.kt     # Android MediaCodec hardware MP4/WebM encoder (zero RAM spike)
-│   └── ProjectSerializer.kt         # Custom binary/ZIP `.pas` project format + PSD/SVG/PNG export
+│   ├── AnimationCanvasView.kt       # Hardware stage canvas, touch router, playback engine
+│   ├── canvas/ViewportController.kt # Viewport matrix (pan/zoom/rotate/mirror), inverse mapping
+│   ├── brush/InputStabilizer.kt     # Real-time Lazy-Mouse / Streamline stroke smoothing
+│   ├── tools/StudioToolType.kt      # Pluggable Tool types (Pen, Eraser, Pan, Bucket, Lasso)
+│   ├── onion/OnionSkinRenderer.kt   # Multi-frame tinted Onion Skinning (Past Red / Future Cyan)
+│   ├── tween/                       # (Planned) Keyframes, Bézier Graph Editor, 2D IK/FK Bones
+│   └── memory/                      # (Planned) LruTileCache, RGB_565 flattening, DiskSwapManager
 └── ui/
-    ├── workspace/                   # Dockable/collapsible studio panels, left-handed flip mode
-    ├── timeline/                    # Virtualized timeline scrubber, exposure sheet (X-Sheet), layer controls
-    └── dialogs/                     # Color wheel, brush studio, export settings, on-device diagnostics
+    └── workspace/StudioWorkspaceLayout.kt # Dockable/collapsible studio panels, timeline scrubber, L/R flip
 ```
 
 ---
@@ -68,62 +71,61 @@ com.animationapp/
 
 ### Category 1: Pro Studio UX & Ergonomics (Often Forgotten!)
 1. **Palm Rejection & Stylus-Only Mode**: Ignore accidental palm/wrist touches when using a stylus or drawing with one finger while resting hand.
-2. **Multi-Touch Gesture Shortcuts**:
+2. **Multi-Touch Gesture Shortcuts** *(Implemented)*:
    - Two-finger tap = Instant **Undo**.
    - Three-finger tap = Instant **Redo**.
-   - Two-finger pinch/drag/twist = Smooth **Zoom, Pan, and Canvas Rotation** (with quick snap back to 0°).
-   - Long-press on canvas = Instant **Eyedropper (Color Picker)** loupe magnifier.
-3. **Quick-Access Radial Menu / Floating Puck**: Customizable on-screen shortcut wheel for one-handed thumb access to brush size, opacity, flip canvas, and step 1 frame forward/back.
-4. **Canvas Flip (Horizontal/Vertical Mirror Preview)**: Instant hot-button to flip the stage horizontally so animators can immediately spot proportion/pose symmetry mistakes.
-5. **Left-Handed & Right-Handed Workspace Flip**: Single toggle to mirror all toolbars so the drawing hand never covers the UI controls.
-6. **Reference Image Pinboard (PureRef-style)**: Floating, resizable reference image window with its own eyedropper and opacity slider so artists can look at character sheets while animating.
+   - Two-finger pinch/drag/twist = Smooth **Zoom, Pan, and Canvas Rotation**.
+   - Long-press on canvas = Instant **Eyedropper (Color Picker)** loupe magnifier *(Next)*.
+3. **Quick-Access Radial Menu / Floating Puck**: Customizable on-screen shortcut wheel for one-handed thumb access.
+4. **Canvas Flip (Horizontal/Vertical Mirror Preview)** *(Implemented)*: Instant `⇄ Flip` button in top bar to check pose symmetry.
+5. **Left-Handed & Right-Handed Workspace Flip** *(Implemented)*: Single `✋ L/R` toggle to mirror the tool dock.
+6. **Reference Image Pinboard (PureRef-style)**: Floating, resizable reference image window.
 
 ### Category 2: Crash-Proofing, Diagnostics & Low-End Survival
-7. **Atomic Stroke-by-Stroke Autosave & Crash Recovery**: If a cheap phone's battery dies or the OS kills the app, zero strokes are lost—changes are journaled to disk asynchronously.
-8. **In-App Debug Console & Diagnostics Overlay**: Since we build via GitHub Actions without local Android Studio Logcat, the app includes a toggleable **In-App Diagnostics & Crash Log Viewer** (with a "Copy Error Report" button) so any bug on your phone tells you the exact file and line number immediately!
-9. **Adaptive Low-Spec Mode ("Potato Phone Turbo Mode")**: Automatically or manually switches inactive layers to 16-bit color (`RGB_565`), halves preview resolution during fast playback, and aggressively streams offscreen frames to disk.
+7. **Atomic Stroke-by-Stroke Autosave & Crash Recovery**: Journal changes to disk asynchronously.
+8. **In-App Debug Console & Diagnostics Overlay** *(Implemented)*: `CrashReporter.kt` catches uncaught exceptions and provides a live `🐞 Logs` viewer with 1-tap clipboard copy.
+9. **Adaptive Low-Spec Mode ("Potato Phone Turbo Mode")**: Switches inactive layers to 16-bit color (`RGB_565`) and streams offscreen frames to disk.
 
 ### Category 3: Drawing, Inking & Coloring Engine
-10. **Pluggable Brush Studio**: Pencil, Ballpoint, G-Pen (variable ink taper), Airbrush, Marker, Pixel Art (1px aliased), Textured Watercolor/Charcoal.
-11. **Input Stabilizer (Streamline / Lazy-Mouse)**: Adjustable rope/spring smoothing (0–100%) to turn shaky finger drawing on cheap screens into clean studio line-art.
-12. **Velocity & Pressure Simulation**: Budget phones without pressure-sensitive styluses can simulate pen pressure based on **finger speed** or **touch contact area (`event.size`)**.
-13. **Vector + Raster Hybrid Layers**:
-    - Vector layers allow infinite scaling, line-width tweaking after drawing, and **Stroke Cutter / Vector Eraser** (automatically trims intersecting lines at intersections!).
-    - Raster layers allow textured shading, smudging, and pixel art.
-14. **Smart Fill Bucket**:
-    - **Close Gaps** (1px to 15px gap tolerance so paint doesn't leak out of open sketches).
-    - **Reference Layer Fill**: Draw line-art on Layer 2, set it as "Reference", and tap-fill colors cleanly on Layer 1 underneath!
-    - **Expand / Contract (Trapping)**: Automatically expands fill by 1–2px under the black line-art so there are no ugly white halos around edges.
-15. **Symmetry & Perspective Guides**: Mirror Ruler, Kaleidoscope, 1-Point, 2-Point, 3-Point Perspective grids, and Fish-eye curvilinear guides with snap-to-guide toggle.
-16. **Lasso, Transform & Mesh Warp**: Freehand selection, bounding box scale/rotate/skew, perspective 4-corner pin, and lattice mesh deformation.
+10. **Pluggable Brush Studio** *(Core Implemented, More Brushes Next)*: Adjustable Brush Size (1–120px), Eraser Size (4–180px), Color Swatches.
+11. **Input Stabilizer (Streamline / Lazy-Mouse)** *(Implemented)*: Adjustable 0–90% smoothing slider in `⚙ Brush` dialog.
+12. **Velocity & Pressure Simulation**: Simulate pen pressure based on finger speed or touch contact area.
+13. **Vector + Raster Hybrid Layers**: Infinite scaling + Vector Eraser / Stroke Cutter.
+14. **Smart Fill Bucket**: Gap Closure (1–15px), Reference Layer Fill, and Under-Line Color Trapping.
+15. **Symmetry & Perspective Guides**: Mirror Ruler, 1/2/3-Point Perspective grids.
+16. **Lasso, Transform & Mesh Warp**: Freehand selection, scale/rotate/skew, and lattice mesh deformation.
 
 ### Category 4: Pro Animation Timeline & Cel Workflow
-17. **Exposure Holds (1s, 2s, 3s, N-frames)**: Hold a drawing across multiple frames without duplicating memory.
-18. **Clone / Linked Cels**: Reuse the exact same drawing at frame 10 and frame 45; editing one automatically updates all linked instances (ideal for blinking eyes or looping backgrounds).
-19. **Shift and Trace (Virtual Light Table)**: Temporarily move/rotate an onion-skin ghost frame to trace in-betweens accurately, then snap it back into place (a signature Toon Boom / TVPaint pro feature).
-20. **Flipbook Scrubbing Wheel ("Rolling" the frames)**: Hold a corner widget and slide left/right to rapidly flip between the last 3 drawings like flipping paper pages between your fingers.
-21. **Layer Folders, Clipping Masks & Alpha Lock**: Group character parts into folders, lock transparent pixels for easy shading, and apply clipping masks.
-22. **Blend Modes**: Normal, Multiply (for shadows), Screen/Add (for glow/lighting), Overlay, Color Dodge.
-23. **2D Camera Layer**: Dedicated camera frame with pan, zoom, truck-in, rotation, and camera shake keyframes independent of the artwork layers.
+17. **Exposure Holds (1s, 2s, 3s, N-frames)** *(Model Ready, UI Next)*: Hold a drawing across multiple frames without duplicating memory.
+18. **Clone / Linked Cels** *(Frame Duplication Implemented)*: `⧉ Clone` button duplicates active cel onto next frame.
+19. **Shift and Trace (Virtual Light Table)**: Temporarily move/rotate an onion-skin ghost frame to trace in-betweens.
+20. **Flipbook Scrubbing Wheel ("Rolling" the frames)**: Rapidly flip between the last 3 drawings.
+21. **Layer Folders, Clipping Masks & Alpha Lock**: Multi-layer stack management.
+22. **Blend Modes**: Normal, Multiply, Screen/Add, Overlay.
+23. **2D Camera Layer**: Dedicated camera frame with pan, zoom, and rotation keyframes.
 
 ### Category 5: Tweening, Rigging & Procedural FX
-24. **Keyframe Interpolation & Graph Editor**: Animate layer position, scale, rotation, opacity, and pivot points with a full Cubic Bézier velocity curve editor (Ease-In, Ease-Out, Bounce, Stepped).
-25. **2D Skeletal Rigging (FK / IK Bones)**: Create bone hierarchies for character limbs with Inverse Kinematics (pin feet to the ground, pull hand and elbow bends naturally).
-26. **Motion Paths**: Visible trajectory arcs on the canvas with tick marks showing spacing (slow-in / slow-out visualization).
-27. **Non-Destructive VFX Modifiers**: Blur, Drop Shadow, Chromatic Aberration, Glow/Bloom, Color Grading LUTs, and Line Boil (auto-wiggle effect).
+24. **Keyframe Interpolation & Graph Editor**: Animate layer position, scale, rotation, opacity with Cubic Bézier curves.
+25. **2D Skeletal Rigging (FK / IK Bones)**: Bone hierarchies with Inverse Kinematics.
+26. **Motion Paths**: Visible trajectory arcs on canvas.
+27. **Non-Destructive VFX Modifiers**: Blur, Glow/Bloom, Shadow, Line Boil.
 
 ### Category 6: Audio, Lip-Sync & Export Pipeline
-28. **Multi-Track Audio & Real-Time Scrubbing**: Import MP3/WAV/OGG, view high-precision PCM waveforms on the timeline, and hear frame-by-frame audio slices while dragging the playhead.
-29. **Built-in Voice Recorder & Phoneme Markers**: Record voiceovers directly inside the app and place lip-sync mouth chart markers (A, E, I, O, U, M, F, L) on the timeline.
-30. **Rotoscoping Video Import**: Import a reference video clip onto a background layer (streamed frame-by-frame from disk so it never blows up RAM) to trace or study motion.
-31. **Hardware-Accelerated Export**: MP4 (H.264/H.265 via Android `MediaCodec`), Transparent WebM/APNG/GIF, Sprite Sheets (with JSON atlas for game engines like Godot/Unity), and Layered ZIP/PSD project backup.
+28. **Multi-Track Audio & Real-Time Scrubbing**: Import audio, view waveforms, scrub frames.
+29. **Built-in Voice Recorder & Phoneme Markers**: Record voiceovers and place mouth chart markers.
+30. **Rotoscoping Video Import**: Stream reference video frames from disk.
+31. **Hardware-Accelerated Export**: MP4 via Android `MediaCodec`, GIF, Sprite Sheets, and `.pas` project files.
 
 ---
 
 ## 5. Change Log & Session History
 - **2026-10-18 (Session 1)**:
-  - Decided on Pure Native Kotlin + GitHub Actions CI/CD (Zero local Android Studio/SDK bloat).
-  - Created repository structure, Gradle configuration, R8 optimization rules, and `.github/workflows/build-apk.yml`.
-  - Built initial `MainActivity.kt` and `AnimationCanvasView.kt` with zero-allocation render loop and live FPS/RAM HUD.
-  - Pushed initial commits to `https://github.com/DevMarvellous/animation.git`.
+  - Set up Pure Native Kotlin + GitHub Actions CI/CD (Zero local Android Studio/SDK bloat).
+  - Verified GitHub Actions cloud APK builds (`conclusion: success`).
   - Created `AGENT_CONTEXT.md` as the permanent brain of the project.
+- **2026-10-18 (Session 2)**:
+  - Implemented modular package architecture (`core/config`, `core/diagnostics`, `core/profiler`, `model`, `engine/brush`, `engine/canvas`, `engine/onion`, `engine/tools`, `ui/workspace`).
+  - Added `CrashReporter.kt` for in-app crash catching and live diagnostics without ADB Logcat.
+  - Built `ViewportController.kt` (multi-touch pan, pinch-zoom, canvas rotation, horizontal mirror flip) and `InputStabilizer.kt` (Lazy-Mouse smoothing).
+  - Built `OnionSkinRenderer.kt` (Ruby Red past frames, Cobalt Cyan future frames) and `StudioWorkspaceLayout.kt` (Top bar, L/R-handed tool dock, color swatches, Brush/Stabilizer dialog, and interactive Timeline Scrubber with Play/Pause, FPS selector, Add/Clone/Delete frame).
+

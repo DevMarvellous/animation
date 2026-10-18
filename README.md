@@ -17,3 +17,4 @@ Every push to `main` automatically triggers a GitHub Actions runner that compile
 - `ProAnimationStudio-Debug-APK` (With debugging enabled)
 
 You can download ready-to-install APKs directly from the **Actions** tab on GitHub!
+
