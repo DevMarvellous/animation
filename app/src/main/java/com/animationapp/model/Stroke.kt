@@ -1,14 +1,18 @@
 package com.animationapp.model
 
+import android.graphics.Matrix
 import android.graphics.Path
+import android.graphics.RectF
 import com.animationapp.core.config.StudioConfig
 import kotlin.math.abs
 
 /**
- * Memory-packed vector stroke representation.
+ * Memory-packed 2D vector stroke representation.
  *
  * Uses a single primitive FloatArray (interleaved x, y, pressure) instead of ArrayList<Point>
  * to eliminate object header overhead and prevent Garbage Collection pauses on budget phones.
+ *
+ * Supports in-place 2D affine transformations (Translate, Scale, Rotate) for the Lasso Tool!
  */
 class Stroke(
     val color: Int,
@@ -22,6 +26,7 @@ class Stroke(
 
     // Pre-built hardware Path cached for fast rendering
     val renderPath = Path()
+    val bounds = RectF()
     private var lastX = 0f
     private var lastY = 0f
 
@@ -39,9 +44,11 @@ class Stroke(
         if (pointCount == 0) {
             renderPath.reset()
             renderPath.moveTo(x, y)
+            bounds.set(x, y, x, y)
             lastX = x
             lastY = y
         } else {
+            bounds.union(x, y)
             val dx = abs(x - lastX)
             val dy = abs(y - lastY)
             if (dx >= StudioConfig.MIN_POINT_DISTANCE_PX || dy >= StudioConfig.MIN_POINT_DISTANCE_PX) {
@@ -57,7 +64,46 @@ class Stroke(
 
     fun finishStroke(x: Float, y: Float) {
         if (pointCount > 0) {
+            bounds.union(x, y)
             renderPath.lineTo(x, y)
+        }
+    }
+
+    /**
+     * Transforms all points of this 2D stroke in-place using a 2D affine Matrix (Zero GC allocation).
+     */
+    fun applyTransform(matrix: Matrix, scratchPt: FloatArray) {
+        if (pointCount == 0) return
+        renderPath.reset()
+        bounds.setEmpty()
+
+        for (i in 0 until pointCount) {
+            val offset = i * 3
+            scratchPt[0] = pointData[offset]
+            scratchPt[1] = pointData[offset + 1]
+            matrix.mapPoints(scratchPt)
+
+            val nx = scratchPt[0]
+            val ny = scratchPt[1]
+            pointData[offset] = nx
+            pointData[offset + 1] = ny
+
+            if (i == 0) {
+                renderPath.moveTo(nx, ny)
+                bounds.set(nx, ny, nx, ny)
+                lastX = nx
+                lastY = ny
+            } else {
+                bounds.union(nx, ny)
+                val midX = (nx + lastX) * 0.5f
+                val midY = (ny + lastY) * 0.5f
+                renderPath.quadTo(lastX, lastY, midX, midY)
+                lastX = nx
+                lastY = ny
+            }
+        }
+        if (pointCount > 0) {
+            renderPath.lineTo(lastX, lastY)
         }
     }
 
@@ -70,9 +116,9 @@ class Stroke(
         copy.pointData = pointData.copyOf(pointCount * 3)
         copy.pointCount = pointCount
         copy.renderPath.set(renderPath)
+        copy.bounds.set(bounds)
         copy.lastX = lastX
         copy.lastY = lastY
         return copy
     }
 }
-

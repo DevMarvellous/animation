@@ -16,8 +16,8 @@
 
 ---
 
-## 2. Current Project Status & Completed Milestones
-- **Current Phase**: Phases 1, 2, 3, 4 & 5 Completed → Ready for Phase 6 (Lasso Selection & Transform Tool, Shift-and-Trace Light Table, Audio Track Scrubbing, & Hardware MP4 Video Export).
+### 2. Current Project Status & Completed Milestones
+- **Current Phase**: Phases 1 through 7 Completed → Ready for Phase 8 (2D Camera Pan/Zoom Track, Vector Intersection Eraser, & Audio Track Scrubbing).
 - **GitHub Actions Status**: Verified GREEN (`conclusion: success`) on `https://github.com/DevMarvellous/animation/actions`.
 - **What Exists Right Now**:
   - `.github/workflows/build-apk.yml`: Cloud CI/CD building both `Debug` and R8-optimized `Release` APKs on every push to `main`.
@@ -25,17 +25,19 @@
   - `core/diagnostics/CrashReporter.kt`: In-App Crash Catcher & Live Diagnostics dialog with one-tap "Copy Report" to clipboard.
   - `core/profiler/PerformanceHud.kt`: Zero-allocation real-time FPS, Heap RAM, Frame index, and Zoom % HUD overlay.
   - `core/storage/CrashSafeAutosave.kt`: Atomic binary `.pas` background autosave & crash recovery (`autosave.pas.tmp` -> `autosave.pas`).
-  - `model/Stroke.kt`: Primitive `FloatArray`-backed stroke model (zero `Point` object overhead) with cached hardware `Path`.
+  - `model/Stroke.kt`: Primitive `FloatArray`-backed 2D stroke model with bounding box tracking and in-place 2D `Matrix` affine transformation (`applyTransform`).
   - `model/AnimationLayer.kt`: Multi-layer model (`LayerCel`, `AnimationLayer`, `LayerBlendMode` for Normal, Multiply, Screen, Add, Overlay, plus Reference Layer, Alpha Lock, Opacity, and Visibility).
   - `model/AnimationFrame.kt`: Multi-layer frame holding `LayerCel`s per layer and `exposureHold` (1s, 2s, 3s, 4s timing).
   - `model/AnimationProject.kt`: Stage container managing multi-layer stack, reference layer selection, exposure holds, FPS, and onion skinning.
   - `engine/brush/InputStabilizer.kt`: Real-time Lazy-Mouse / Streamline exponential smoothing filter for shaky budget touchscreens.
   - `engine/canvas/ViewportController.kt`: Pre-allocated forward/inverse `Matrix` camera controller for Pan, Pinch-Zoom (15%–3200%), Two-Finger Rotate, and Horizontal Mirror Flip.
-  - `engine/onion/OnionSkinRenderer.kt`: Multi-frame & multi-layer tinted Onion Skin renderer (Ruby Red past frames, Cobalt Cyan future frames).
-  - `engine/tools/StudioToolType.kt`: Pluggable tool enum (`BRUSH`, `ERASER`, `FILL_BUCKET`, `EYEDROPPER`, `HAND_PAN`).
+  - `engine/onion/OnionSkinRenderer.kt`: Multi-frame & multi-layer tinted Onion Skin renderer + **Shift-and-Trace (Virtual Light Table)** offset support.
+  - `engine/tools/StudioToolType.kt`: Pluggable tool enum (`BRUSH`, `ERASER`, `LASSO`, `FILL_BUCKET`, `EYEDROPPER`, `SHIFT_TRACE`, `HAND_PAN`).
+  - `engine/tools/LassoTransformController.kt`: Freehand 2D Lasso selection polygon & interactive Move/Scale/Rotate bounding box gizmo.
   - `engine/tools/SmartFloodFillEngine.kt`: Zero-object-allocation Scanline Flood Fill engine with Reference Layer boundary detection and 1px under-line color trapping.
-  - `engine/AnimationCanvasView.kt`: Full stage engine with multi-layer scratch/composite caching, 2-finger tap Undo, 3-finger tap Redo, Vertical Symmetry Mirror drawing, and Exposure Hold playback loop.
-  - `ui/workspace/StudioWorkspaceLayout.kt`: Programmatic native Studio UI with Top Action Bar, Layer Manager Dialog (`🗂 Layers`), Left/Right-Handed Tool Dock (`✏ Pen`, `⌫ Erase`, `🪣 Fill`, `💧 Pick`, `✥ Pan`), Symmetry toggle (`🦋 Sym`), Exposure Hold timer (`⏱ 1s/2s/3s`), and Bottom Timeline Scrubber.
+  - `export/HardwareVideoExporter.kt`: Zero-bloat 1080p H.264 `.mp4` hardware video exporter using Android's native `MediaCodec` and `MediaMuxer`.
+  - `engine/AnimationCanvasView.kt`: Full stage engine integrating multi-layer compositing, Lasso Transform, Shift-and-Trace Light Table, Vertical Symmetry Mirror drawing, and Exposure Hold playback loop.
+  - `ui/workspace/StudioWorkspaceLayout.kt`: Programmatic native Studio UI with Top Action Bar (`🎬 Export MP4`, `🗂 Layers`, `🦋 Sym`, etc.), Left/Right-Handed Tool Dock (`✏ Pen`, `⌫ Erase`, `⬠ Lasso`, `🪣 Fill`, `💧 Pick`, `💡 Shift`, `✥ Pan`), and Bottom Timeline Scrubber.
   - `MainActivity.kt`: Native `Activity` mounting `StudioWorkspaceLayout` with 90Hz/120Hz display refresh rate negotiation and `CrashReporter`.
 
 ---
@@ -45,28 +47,29 @@ To ensure we can add 100+ pro features without spaghetti code, all code under `a
 
 ```text
 com.animationapp/
-├── MainActivity.kt                      # App entry point, lifecycle, memory trim, crash recovery
+├── MainActivity.kt                        # App entry point, lifecycle, memory trim, crash recovery
 ├── core/
-│   ├── config/StudioConfig.kt           # Central tuning constants (max undo, tile sizes, RAM thresholds)
-│   ├── diagnostics/CrashReporter.kt     # In-app crash catcher & live log viewer with clipboard copy
-│   ├── profiler/PerformanceHud.kt       # FPS, frame-time (ms), RAM heap, frame & zoom counter
-│   └── storage/CrashSafeAutosave.kt     # Background atomic binary .pas autosave & restoration
+│   ├── config/StudioConfig.kt             # Central tuning constants (max undo, tile sizes, RAM thresholds)
+│   ├── diagnostics/CrashReporter.kt       # In-app crash catcher & live log viewer with clipboard copy
+│   ├── profiler/PerformanceHud.kt         # FPS, frame-time (ms), RAM heap, frame & zoom counter
+│   └── storage/CrashSafeAutosave.kt       # Background atomic binary .pas autosave & restoration
 ├── model/
-│   ├── AnimationProject.kt              # Multi-layer stack, FPS, background color, frame list
-│   ├── AnimationFrame.kt                # Per-layer LayerCels, exposure hold (1s/2s/3s/4s), dirty flag
-│   ├── AnimationLayer.kt                # LayerCel, AnimationLayer, LayerBlendMode, Reference & Alpha Lock
-│   └── Stroke.kt                        # Packed FloatArray coordinates (x, y, pressure)
+│   ├── AnimationProject.kt                # Multi-layer stack, FPS, background color, frame list
+│   ├── AnimationFrame.kt                  # Per-layer LayerCels, exposure hold (1s/2s/3s/4s), dirty flag
+│   ├── AnimationLayer.kt                  # LayerCel, AnimationLayer, LayerBlendMode, Reference & Alpha Lock
+│   └── Stroke.kt                          # Packed FloatArray coordinates + in-place 2D Matrix transform
 ├── engine/
-│   ├── AnimationCanvasView.kt           # Hardware stage canvas, multi-layer compositor, touch router
-│   ├── canvas/ViewportController.kt     # Viewport matrix (pan/zoom/rotate/mirror), inverse mapping
-│   ├── brush/InputStabilizer.kt         # Real-time Lazy-Mouse / Streamline stroke smoothing
-│   ├── tools/StudioToolType.kt          # Pluggable Tool types (Pen, Eraser, Fill, Eyedropper, Pan)
-│   ├── tools/SmartFloodFillEngine.kt    # Scanline Flood Fill with Reference Layer & 1px color trapping
-│   ├── onion/OnionSkinRenderer.kt       # Multi-frame tinted Onion Skinning (Past Red / Future Cyan)
-│   ├── tween/                           # (Planned) Keyframes, Bézier Graph Editor, 2D IK/FK Bones
-│   └── memory/                          # (Planned) LruTileCache, RGB_565 flattening, DiskSwapManager
+│   ├── AnimationCanvasView.kt             # Hardware stage canvas, multi-layer compositor, touch router
+│   ├── canvas/ViewportController.kt       # Viewport matrix (pan/zoom/rotate/mirror), inverse mapping
+│   ├── brush/InputStabilizer.kt           # Real-time Lazy-Mouse / Streamline stroke smoothing
+│   ├── tools/StudioToolType.kt            # Pluggable Tool types (Pen, Eraser, Lasso, Fill, Pick, Shift, Pan)
+│   ├── tools/LassoTransformController.kt  # Freehand 2D Lasso selection & Move/Scale/Rotate gizmo
+│   ├── tools/SmartFloodFillEngine.kt      # Scanline Flood Fill with Reference Layer & 1px color trapping
+│   └── onion/OnionSkinRenderer.kt         # Multi-frame tinted Onion Skinning + Shift-and-Trace Light Table
+├── export/
+│   └── HardwareVideoExporter.kt           # Hardware-accelerated 1080p H.264 MP4 exporter (MediaCodec)
 └── ui/
-    └── workspace/StudioWorkspaceLayout.kt # Layer manager, tool dock, timeline scrubber, L/R flip
+    └── workspace/StudioWorkspaceLayout.kt # Layer manager, tool dock, timeline scrubber, MP4 export
 ```
 
 ---
@@ -97,20 +100,20 @@ com.animationapp/
 13. **Vector + Raster Hybrid Layers** *(Implemented)*: Each `LayerCel` combines vector `Stroke` lists with raster `fillBitmap` overlays.
 14. **Smart Fill Bucket** *(Implemented)*: `SmartFloodFillEngine.kt` with **Reference Layer Fill** and **1px Under-Line Color Trapping**.
 15. **Symmetry & Perspective Guides** *(Vertical Mirror Symmetry Implemented)*: `🦋 Sym` toggle for real-time symmetrical character drawing.
-16. **Lasso, Transform & Mesh Warp**: Freehand selection, scale/rotate/skew, and lattice mesh deformation.
+16. **Lasso, Transform & Bounding Box Gizmo** *(Implemented)*: `LassoTransformController.kt` (`⬠ Lasso`) for freehand selection, Move, Scale, and Rotate.
 
 ### Category 4: Pro Animation Timeline & Cel Workflow
 17. **Exposure Holds (1s, 2s, 3s, 4s)** *(Implemented)*: `⏱ 1s` button in timeline cycles frame hold timing (`x2`, `x3`, `x4`) without duplicating memory.
 18. **Clone / Linked Cels** *(Implemented)*: `⧉ Clone` button duplicates all layers of active frame onto next frame.
-19. **Shift and Trace (Virtual Light Table)**: Temporarily move/rotate an onion-skin ghost frame to trace in-betweens.
+19. **Shift and Trace (Virtual Light Table)** *(Implemented)*: `💡 Shift` tool slides ghost onion skins to align in-between poses; `⛶ Fit` snaps them back to (0,0).
 20. **Flipbook Scrubbing Wheel ("Rolling" the frames)**: Rapidly flip between the last 3 drawings.
 21. **Multi-Layer Stack, Reference Layer & Alpha Lock** *(Implemented)*: `🗂 Layers` dialog with Add/Delete layer, Visibility (`👁`), Reference Layer (`⭐Ref`), Alpha Lock (`🔒α`), and Opacity slider.
 22. **Blend Modes** *(Implemented)*: Normal, Multiply, Screen, Add (Glow), Overlay.
-23. **2D Camera Layer**: Dedicated camera frame with pan, zoom, and rotation keyframes.
+23. **2D Camera Layer**: Dedicated 2D camera frame with pan, zoom, and rotation keyframes.
 
 ### Category 5: Tweening, Rigging & Procedural FX
-24. **Keyframe Interpolation & Graph Editor**: Animate layer position, scale, rotation, opacity with Cubic Bézier curves.
-25. **2D Skeletal Rigging (FK / IK Bones)**: Bone hierarchies with Inverse Kinematics.
+24. **Keyframe Interpolation & Graph Editor**: Animate 2D layer position, scale, rotation, opacity with Cubic Bézier curves.
+25. **2D Cut-Out Skeletal Rigging (FK / IK Bones)**: 2D bone hierarchies with Inverse Kinematics.
 26. **Motion Paths**: Visible trajectory arcs on canvas.
 27. **Non-Destructive VFX Modifiers**: Blur, Glow/Bloom, Shadow, Line Boil.
 
@@ -118,7 +121,7 @@ com.animationapp/
 28. **Multi-Track Audio & Real-Time Scrubbing**: Import audio, view waveforms, scrub frames.
 29. **Built-in Voice Recorder & Phoneme Markers**: Record voiceovers and place mouth chart markers.
 30. **Rotoscoping Video Import**: Stream reference video frames from disk.
-31. **Hardware-Accelerated Export**: MP4 via Android `MediaCodec`, GIF, Sprite Sheets, and `.pas` project files.
+31. **Hardware-Accelerated Export** *(1080p MP4 Implemented)*: `HardwareVideoExporter.kt` (`🎬 Export MP4`) encodes H.264 `.mp4` directly to `Movies/ProAnimationStudio/` via Android `MediaCodec`.
 
 ---
 
@@ -127,11 +130,11 @@ com.animationapp/
   - Set up Pure Native Kotlin + GitHub Actions CI/CD (Zero local Android Studio/SDK bloat).
   - Verified GitHub Actions cloud APK builds (`conclusion: success`).
   - Created `AGENT_CONTEXT.md` as the permanent brain of the project.
-- **2026-10-18 (Session 2 - Phase 2 & 3)**:
+- **2026-10-18 (Session 2 - Phases 2, 3, 4 & 5)**:
   - Implemented modular package architecture, `CrashReporter.kt`, `ViewportController.kt`, `InputStabilizer.kt`, `OnionSkinRenderer.kt`, and `StudioWorkspaceLayout.kt`.
-- **2026-10-18 (Session 2 - Phase 4 & 5)**:
-  - Built Multi-Layer compositing engine (`AnimationLayer.kt`, `LayerCel`, `LayerBlendMode`: Normal, Multiply, Screen, Add, Overlay, Alpha Lock, Opacity, Visibility, Reference Layer).
-  - Built `SmartFloodFillEngine.kt` (zero-allocation scanline flood fill with Reference Layer boundary detection and 1px under-line color trapping).
-  - Added Canvas Eyedropper (`💧 Pick`), Vertical Mirror Symmetry drawing (`🦋 Sym`), and Timeline Exposure Holds (`⏱ 1s/2s/3s/4s`).
-  - Built `CrashSafeAutosave.kt` for background atomic binary `.pas` persistence and instant session recovery.
+  - Built Multi-Layer compositing engine (`AnimationLayer.kt`, `LayerCel`, `LayerBlendMode`), `SmartFloodFillEngine.kt` (Reference Layer + 1px under-line color trapping), Eyedropper, Vertical Symmetry, Exposure Holds (`1s/2s/3s/4s`), and `CrashSafeAutosave.kt`.
+- **2026-10-19 (Session 3 - Phases 6 & 7)**:
+  - Built `LassoTransformController.kt` (`⬠ Lasso`) for freehand 2D stroke selection and interactive Move, Scale, and Rotate bounding box gizmo.
+  - Added **Shift-and-Trace Virtual Light Table** (`💡 Shift`) to `OnionSkinRenderer.kt` so animators can slide ghost onion skins to trace in-betweens and snap back via `⛶ Fit`.
+  - Built `HardwareVideoExporter.kt` (`🎬 Export MP4`) using Android's native `MediaCodec` + `MediaMuxer` for zero-bloat 1080p H.264 `.mp4` video export to Gallery.
 

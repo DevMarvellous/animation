@@ -13,18 +13,22 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.SeekBar
 import android.widget.TextView
+import android.widget.Toast
 import com.animationapp.core.diagnostics.CrashReporter
 import com.animationapp.engine.AnimationCanvasView
 import com.animationapp.engine.tools.StudioToolType
+import com.animationapp.export.HardwareVideoExporter
 import com.animationapp.model.LayerBlendMode
 
 /**
- * Modular, zero-bloat Native Pro Studio Workspace UI (Phase 4).
+ * Modular, zero-bloat Native Pro 2D Studio Workspace UI (Phase 6 & 7).
  *
  * Includes:
  * - Top Action Bar: Undo, Redo, Layers Manager (`🗂 Layers`), Onion Skin Toggle, Symmetry Guide (`🦋 Sym`),
- *   Mirror Flip (`⇄ Flip`), Fit Stage (`⛶ Fit`), FPS Selector, Brush Studio (`⚙ Brush`), Left/Right Hand Flip, Logs.
- * - Dockable Tool & Color Bar: Pen, Eraser, Smart Fill Bucket (`🪣 Fill`), Eyedropper (`💧 Pick`), Pan/Zoom,
+ *   Mirror Flip (`⇄ Flip`), Fit/Reset Light Table (`⛶ Fit`), FPS Selector, Brush Studio (`⚙ Brush`),
+ *   1080p Hardware MP4 Export (`🎬 Export MP4`), Left/Right Hand Flip, Logs.
+ * - Dockable Tool & Color Bar: Pen, Eraser, 2D Lasso Transform (`⬠ Lasso`), Smart Fill Bucket (`🪣 Fill`),
+ *   Eyedropper (`💧 Pick`), Shift-and-Trace Light Table (`💡 Shift`), Pan/Zoom (`✥ Pan`),
  *   Active Color Indicator & Quick Color Swatches.
  * - Bottom Timeline Scrubber: Play/Pause, Step Back/Forward, Frame Pills (with Exposure Hold badge `x2`, `x3`),
  *   Hold Timing button (`⏱ 1s/2s/3s`), +Add Frame, Clone Frame, Delete Frame.
@@ -42,6 +46,7 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
     private lateinit var symBtn: TextView
     private lateinit var mirrorBtn: TextView
     private lateinit var fpsBtn: TextView
+    private lateinit var exportBtn: TextView
     private lateinit var holdBtn: TextView
     private lateinit var sizeLabel: TextView
     private lateinit var activeColorDot: View
@@ -126,6 +131,10 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
             showBrushSettingsDialog()
         }
 
+        exportBtn = createStudioButton("🎬 Export MP4") {
+            triggerHardwareMp4Export()
+        }
+
         val btnHandMode = createStudioButton("✋ L/R") {
             toggleHandednessLayout()
         }
@@ -136,7 +145,7 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
 
         listOf(
             btnUndo, btnRedo, layersBtn, onionBtn, symBtn, mirrorBtn,
-            btnFit, fpsBtn, btnSliders, btnHandMode, btnDiag
+            btnFit, fpsBtn, btnSliders, exportBtn, btnHandMode, btnDiag
         ).forEach { btn ->
             val lp = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
@@ -169,21 +178,25 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
 
         val btnPen = createStudioButton("✏ Pen") { selectTool(StudioToolType.BRUSH) }
         val btnEraser = createStudioButton("⌫ Erase") { selectTool(StudioToolType.ERASER) }
+        val btnLasso = createStudioButton("⬠ Lasso") { selectTool(StudioToolType.LASSO) }
         val btnBucket = createStudioButton("🪣 Fill") { selectTool(StudioToolType.FILL_BUCKET) }
         val btnPicker = createStudioButton("💧 Pick") { selectTool(StudioToolType.EYEDROPPER) }
+        val btnShift = createStudioButton("💡 Shift") { selectTool(StudioToolType.SHIFT_TRACE) }
         val btnPan = createStudioButton("✥ Pan") { selectTool(StudioToolType.HAND_PAN) }
 
         toolButtons = mapOf(
             StudioToolType.BRUSH to btnPen,
             StudioToolType.ERASER to btnEraser,
+            StudioToolType.LASSO to btnLasso,
             StudioToolType.FILL_BUCKET to btnBucket,
             StudioToolType.EYEDROPPER to btnPicker,
+            StudioToolType.SHIFT_TRACE to btnShift,
             StudioToolType.HAND_PAN to btnPan
         )
 
-        listOf(btnPen, btnEraser, btnBucket, btnPicker, btnPan).forEach { btn ->
-            val lp = LinearLayout.LayoutParams(dp(72f), dp(32f)).apply {
-                bottomMargin = dp(5f)
+        listOf(btnPen, btnEraser, btnLasso, btnBucket, btnPicker, btnShift, btnPan).forEach { btn ->
+            val lp = LinearLayout.LayoutParams(dp(74f), dp(30f)).apply {
+                bottomMargin = dp(4f)
             }
             dock.addView(btn, lp)
         }
@@ -193,7 +206,7 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
             setTextColor(Color.rgb(180, 190, 210))
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
             gravity = Gravity.CENTER
-            setPadding(0, dp(1f), 0, dp(3f))
+            setPadding(0, dp(1f), 0, dp(2f))
         }
         dock.addView(sizeLabel)
 
@@ -203,10 +216,10 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
         }
         dock.addView(
             activeColorDot,
-            LinearLayout.LayoutParams(dp(28f), dp(28f)).apply { bottomMargin = dp(6f) }
+            LinearLayout.LayoutParams(dp(26f), dp(26f)).apply { bottomMargin = dp(5f) }
         )
 
-        // Scrollable Swatch Strip so it fits even on compact 4.7" screens
+        // Scrollable Swatch Strip
         val colorColumn = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
@@ -234,7 +247,7 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
             isVerticalScrollBarEnabled = false
             addView(colorColumn)
         }
-        dock.addView(swatchScroll, LinearLayout.LayoutParams(LayoutParams.WRAP_CONTENT, dp(115f)))
+        dock.addView(swatchScroll, LinearLayout.LayoutParams(LayoutParams.WRAP_CONTENT, dp(88f)))
 
         dock.layoutParams = LayoutParams(
             LayoutParams.WRAP_CONTENT,
@@ -352,6 +365,31 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
         toolDockContainer.layoutParams = lp
     }
 
+    private fun triggerHardwareMp4Export() {
+        canvasView.pausePlayback()
+        exportBtn.text = "⏳ Rendering..."
+        exportBtn.isEnabled = false
+        styleButton(exportBtn, isHighlighted = true, accentColor = Color.rgb(245, 160, 35))
+
+        HardwareVideoExporter.exportMp4Async(activity, canvasView.project) { success, message ->
+            post {
+                exportBtn.text = "🎬 Export MP4"
+                exportBtn.isEnabled = true
+                styleButton(exportBtn, isHighlighted = false, accentColor = Color.rgb(42, 46, 58))
+
+                if (success) {
+                    Toast.makeText(activity, "Saved MP4 to $message", Toast.LENGTH_LONG).show()
+                } else {
+                    AlertDialog.Builder(activity)
+                        .setTitle("Export Error")
+                        .setMessage(message)
+                        .setPositiveButton("OK", null)
+                        .show()
+                }
+            }
+        }
+    }
+
     fun refreshUiState() {
         val proj = canvasView.project
 
@@ -365,9 +403,10 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
         layersBtn.text = "🗂 ${activeLayer.name}$refBadge"
         styleButton(layersBtn, isHighlighted = true, accentColor = Color.rgb(95, 80, 210))
 
-        // Update Onion Skin button
+        // Update Onion Skin button (show shifted badge if Virtual Light Table is shifted)
         val onionOn = proj.isOnionSkinEnabled
-        onionBtn.text = if (onionOn) "Onion: ON" else "Onion: OFF"
+        val shiftTag = if (canvasView.onionSkinRenderer.isShifted()) " (Shifted)" else ""
+        onionBtn.text = if (onionOn) "Onion: ON$shiftTag" else "Onion: OFF"
         styleButton(onionBtn, isHighlighted = onionOn, accentColor = Color.rgb(255, 75, 110))
 
         // Update Symmetry button
@@ -395,7 +434,6 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
         sizeLabel.text = "${currentSize.toInt()}px"
         activeColorDot.background = createColorOval(canvasView.brushColor, strokeWidthDp = 3f, strokeColor = Color.WHITE)
 
-        // Rebuild timeline frame pills
         rebuildTimelinePills()
     }
 
@@ -441,7 +479,6 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
             setPadding(dp(16f), dp(12f), dp(16f), dp(12f))
         }
 
-        // Top row: + Add Layer & Delete Active Layer
         val headerRow = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -468,7 +505,6 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
         headerRow.addView(btnDelLayer, LinearLayout.LayoutParams(0, dp(36f), 1f))
         root.addView(headerRow)
 
-        // List layers from Top (lastIndex) to Bottom (0) like Adobe/ToonBoom/Procreate
         for (lIdx in proj.layers.lastIndex downTo 0) {
             val layer = proj.layers[lIdx]
             val isSelected = (lIdx == proj.activeLayerIndex)
@@ -501,7 +537,6 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
             }
             topLine.addView(titleTv, LinearLayout.LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f))
 
-            // Visibility Eye Button
             val btnVis = createStudioButton(if (layer.isVisible) "👁" else "🚫") {
                 layer.isVisible = !layer.isVisible
                 proj.currentFrame.isCacheDirty = true
@@ -510,14 +545,12 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
                 canvasView.invalidate()
             }
 
-            // Set as Reference Layer Button (for Smart Fill Bucket)
             val btnRef = createStudioButton(if (layer.isReferenceLayer) "⭐Ref" else "Set Ref") {
                 proj.setReferenceLayer(lIdx)
                 canvasView.triggerAutosave()
                 refreshUiState()
             }
 
-            // Alpha Lock Toggle
             val btnAlpha = createStudioButton(if (layer.isAlphaLocked) "🔒α" else "🔓α") {
                 layer.isAlphaLocked = !layer.isAlphaLocked
                 proj.currentFrame.isCacheDirty = true
@@ -525,7 +558,6 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
                 canvasView.invalidate()
             }
 
-            // Blend Mode Cycle
             val btnBlend = createStudioButton(layer.blendMode.label) {
                 val modes = LayerBlendMode.values()
                 layer.blendMode = modes[(layer.blendMode.ordinal + 1) % modes.size]
@@ -542,7 +574,6 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
             }
             row.addView(topLine)
 
-            // Opacity Slider for this layer
             val opacitySeek = SeekBar(context).apply {
                 max = 100
                 progress = (layer.opacity * 100).toInt()
@@ -683,6 +714,7 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
             appendLine("Layers: ${proj.layers.size} (Active: ${proj.activeLayer.name})")
             appendLine("Total Frames: ${proj.frames.size} (Active Hold: ${proj.currentFrame.exposureHold}s)")
             appendLine("Active Cel Strokes: ${proj.activeCel.strokes.size}")
+            appendLine("Selected Lasso Strokes: ${canvasView.lassoController.selectedStrokes.size}")
             appendLine("Viewport Zoom: ${(canvasView.viewport.zoomScale * 100).toInt()}%")
         }
         CrashReporter.showLiveDiagnosticsDialog(activity, stats)

@@ -18,6 +18,7 @@ import com.animationapp.core.storage.CrashSafeAutosave
 import com.animationapp.engine.brush.InputStabilizer
 import com.animationapp.engine.canvas.ViewportController
 import com.animationapp.engine.onion.OnionSkinRenderer
+import com.animationapp.engine.tools.LassoTransformController
 import com.animationapp.engine.tools.SmartFloodFillEngine
 import com.animationapp.engine.tools.StudioToolType
 import com.animationapp.model.AnimationProject
@@ -31,9 +32,11 @@ import kotlin.math.hypot
  *
  * Capabilities:
  * - Multi-Layer Compositing (Visibility, Opacity, Blend Modes, Alpha Lock, Reference Layer Fill).
+ * - Freehand 2D Lasso Selection & Transform Gizmo (`LASSO`): Move, Scale, and Rotate 2D strokes in place.
+ * - Shift-and-Trace Virtual Light Table (`SHIFT_TRACE`): Temporarily slide ghost onion skins to align in-betweens.
  * - Smart Scanline Flood-Fill Bucket (`FILL_BUCKET`) with Reference Layer boundary detection & 1px under-line color trapping.
  * - Instant Canvas Eyedropper (`EYEDROPPER`) color sampling.
- * - Symmetry Mirror Drawing Guide (Vertical axis mirror drawing).
+ * - Symmetry Mirror Drawing Guide (`isVerticalSymmetryEnabled`).
  * - Exposure Hold playback (1s, 2s, 3s, 4s timing).
  * - Atomic Background Autosave (`CrashSafeAutosave`) after every stroke/action.
  */
@@ -47,11 +50,19 @@ class AnimationCanvasView(
 
     val viewport = ViewportController()
     val stabilizer = InputStabilizer()
-    private val onionSkinRenderer = OnionSkinRenderer()
+    val onionSkinRenderer = OnionSkinRenderer()
+    val lassoController = LassoTransformController()
     val performanceHud = PerformanceHud()
 
     // Active Tool & Brush Settings
     var activeTool: StudioToolType = StudioToolType.BRUSH
+        set(value) {
+            if (field != value) {
+                lassoController.clearSelection()
+                field = value
+                invalidate()
+            }
+        }
     var brushColor: Int = Color.rgb(20, 22, 28)
     var brushSizePx: Float = StudioConfig.DEFAULT_BRUSH_SIZE_PX
     var eraserSizePx: Float = StudioConfig.DEFAULT_ERASER_SIZE_PX
@@ -64,6 +75,10 @@ class AnimationCanvasView(
         private set
     private var lastPlaybackStepTimeMs = 0L
     private var currentHoldTick = 0
+
+    // Shift-and-Trace drag tracking
+    private var lastShiftDragX = 0f
+    private var lastShiftDragY = 0f
 
     // Offscreen Composite Bitmap Cache & Scratch Layer Bitmap
     private var compositeCacheBitmap: Bitmap? = null
@@ -118,7 +133,6 @@ class AnimationCanvasView(
 
     init {
         ensureCachesAllocated()
-        // Restore previous autosaved project if available
         CrashSafeAutosave.loadSavedProjectIfPresent(context, project)
     }
 
@@ -162,11 +176,9 @@ class AnimationCanvasView(
             val cel = frame.getCel(lIdx)
             if (cel.strokes.isEmpty() && cel.fillBitmap == null) continue
 
-            // Render this single layer onto scratch bitmap first so Eraser & Alpha Lock only affect this layer!
             scratchCanvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
             renderCelOntoCanvas(scratchCanvas, cel, layer.isAlphaLocked)
 
-            // Composite layer onto stage cache with layer Opacity & Blend Mode
             layer.syncCompositingPaint()
             compCanvas.drawBitmap(scratchBmp, 0f, 0f, layer.compositingPaint)
         }
@@ -262,7 +274,12 @@ class AnimationCanvasView(
             previewActiveStroke(canvas, mirrorStroke)
         }
 
-        // 8. Draw Vertical Symmetry Guide line if enabled
+        // 8. Draw Freehand Lasso & Transform Bounding Box Gizmo if active
+        if (activeTool == StudioToolType.LASSO) {
+            lassoController.drawOverlay(canvas)
+        }
+
+        // 9. Draw Vertical Symmetry Guide line if enabled
         if (isVerticalSymmetryEnabled) {
             val centerX = project.stageWidth * 0.5f
             canvas.drawLine(centerX, 0f, centerX, project.stageHeight.toFloat(), symmetryGuidePaint)
@@ -270,7 +287,7 @@ class AnimationCanvasView(
 
         canvas.restore()
 
-        // 9. Draw live Performance HUD in top-left
+        // 10. Draw live Performance HUD in top-left
         performanceHud.recordFrameAndDraw(
             canvas = canvas,
             x = 16f,
@@ -324,15 +341,57 @@ class AnimationCanvasView(
             pausePlayback()
         }
 
-        // Block drawing if active layer is locked or hidden
+        val stageX = viewport.screenToStageX(event.x, event.y)
+        val stageY = viewport.screenToStageY(event.x, event.y)
+
+        // Handle Shift-and-Trace Virtual Light Table Tool (slides ghost onion skins)
+        if (activeTool == StudioToolType.SHIFT_TRACE) {
+            when (action) {
+                MotionEvent.ACTION_DOWN -> {
+                    lastShiftDragX = stageX
+                    lastShiftDragY = stageY
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    onionSkinRenderer.addShiftOffset(stageX - lastShiftDragX, stageY - lastShiftDragY)
+                    lastShiftDragX = stageX
+                    lastShiftDragY = stageY
+                    onStateChanged?.invoke()
+                    invalidate()
+                }
+            }
+            return true
+        }
+
+        // Block editing if active layer is locked or hidden
         val currentLayer = project.activeLayer
         if (currentLayer.isLocked || !currentLayer.isVisible) {
             return true
         }
 
-        val stageX = viewport.screenToStageX(event.x, event.y)
-        val stageY = viewport.screenToStageY(event.x, event.y)
-        val pressure = event.pressure.coerceIn(0.1f, 1.0f)
+        // Handle 2D Freehand Lasso Selection & Transform Tool
+        if (activeTool == StudioToolType.LASSO) {
+            when (action) {
+                MotionEvent.ACTION_DOWN -> {
+                    lassoController.onTouchDown(stageX, stageY)
+                    invalidate()
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val modifiedStrokes = lassoController.onTouchMove(stageX, stageY)
+                    if (modifiedStrokes) {
+                        project.currentFrame.isCacheDirty = true
+                    }
+                    invalidate()
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    lassoController.onTouchUp(stageX, stageY, project.activeCel.strokes)
+                    project.currentFrame.isCacheDirty = true
+                    triggerAutosave()
+                    onStateChanged?.invoke()
+                    invalidate()
+                }
+            }
+            return true
+        }
 
         // Handle Instant Single-Tap Tools: EYEDROPPER & FILL_BUCKET
         if (activeTool == StudioToolType.EYEDROPPER) {
@@ -354,6 +413,7 @@ class AnimationCanvasView(
         }
 
         // Handle BRUSH & ERASER
+        val pressure = event.pressure.coerceIn(0.1f, 1.0f)
         val stageCenterX = project.stageWidth * 0.5f
 
         when (action) {
@@ -435,7 +495,6 @@ class AnimationCanvasView(
         val scratchCanvas = scratchLayerCanvas ?: return
         val scratchBmp = scratchLayerBitmap ?: return
 
-        // Render the Reference Layer onto scratchBmp so Flood Fill respects reference line boundaries!
         val refLayerIdx = project.getReferenceLayerIndex()
         val refCel = project.currentFrame.getCel(refLayerIdx)
         scratchCanvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
@@ -586,6 +645,7 @@ class AnimationCanvasView(
     // --- Public Studio Actions ---
 
     fun performUndo() {
+        lassoController.clearSelection()
         if (project.currentFrame.undoOnLayer(project.activeLayerIndex)) {
             triggerAutosave()
             onStateChanged?.invoke()
@@ -594,6 +654,7 @@ class AnimationCanvasView(
     }
 
     fun performRedo() {
+        lassoController.clearSelection()
         if (project.currentFrame.redoOnLayer(project.activeLayerIndex)) {
             triggerAutosave()
             onStateChanged?.invoke()
@@ -602,6 +663,7 @@ class AnimationCanvasView(
     }
 
     fun togglePlayback() {
+        lassoController.clearSelection()
         isPlaying = !isPlaying
         currentHoldTick = 0
         if (isPlaying) {
@@ -626,6 +688,7 @@ class AnimationCanvasView(
 
     fun selectFrame(index: Int) {
         pausePlayback()
+        lassoController.clearSelection()
         project.selectFrame(index)
         project.currentFrame.isCacheDirty = true
         onStateChanged?.invoke()
@@ -634,6 +697,7 @@ class AnimationCanvasView(
 
     fun addBlankFrame() {
         pausePlayback()
+        lassoController.clearSelection()
         project.addBlankFrameAfterCurrent()
         project.currentFrame.isCacheDirty = true
         triggerAutosave()
@@ -643,6 +707,7 @@ class AnimationCanvasView(
 
     fun duplicateCurrentFrame() {
         pausePlayback()
+        lassoController.clearSelection()
         project.duplicateCurrentFrame()
         project.currentFrame.isCacheDirty = true
         triggerAutosave()
@@ -652,6 +717,7 @@ class AnimationCanvasView(
 
     fun deleteCurrentFrame() {
         pausePlayback()
+        lassoController.clearSelection()
         project.deleteCurrentFrame()
         project.currentFrame.isCacheDirty = true
         triggerAutosave()
@@ -668,7 +734,9 @@ class AnimationCanvasView(
     }
 
     fun fitStageToScreen() {
+        onionSkinRenderer.resetShiftOffset()
         viewport.fitStageToViewport(width, height, project.stageWidth, project.stageHeight)
+        onStateChanged?.invoke()
         invalidate()
     }
 

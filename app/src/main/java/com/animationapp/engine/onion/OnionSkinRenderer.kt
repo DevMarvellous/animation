@@ -5,12 +5,14 @@ import android.graphics.Paint
 import com.animationapp.core.config.StudioConfig
 import com.animationapp.model.AnimationFrame
 import com.animationapp.model.AnimationProject
+import kotlin.math.abs
 
 /**
- * Tinted Multi-Frame & Multi-Layer Onion Skin Renderer.
+ * Tinted Multi-Frame & Multi-Layer Onion Skin Renderer + Shift-and-Trace (Virtual Light Table).
  *
- * Renders all visible layers of past frames in Ruby Red and future frames in Cobalt Cyan
- * with smooth opacity falloff. Zero allocations during rendering.
+ * Shift-and-Trace (a signature Toon Boom Harmony / TVPaint feature) lets animators temporarily
+ * drag/slide the previous onion-skin ghost frame to align proportions when drawing fast-moving
+ * in-between frames, then snap it back to (0, 0) in one tap!
  */
 class OnionSkinRenderer {
 
@@ -20,11 +22,34 @@ class OnionSkinRenderer {
         strokeCap = Paint.Cap.ROUND
     }
 
+    // Shift-and-Trace (Virtual Light Table) temporary offset in Stage Pixels
+    var shiftTraceOffsetX: Float = 0f
+        private set
+    var shiftTraceOffsetY: Float = 0f
+        private set
+
+    fun isShifted(): Boolean = abs(shiftTraceOffsetX) > 0.5f || abs(shiftTraceOffsetY) > 0.5f
+
+    fun addShiftOffset(dx: Float, dy: Float) {
+        shiftTraceOffsetX += dx
+        shiftTraceOffsetY += dy
+    }
+
+    fun resetShiftOffset() {
+        shiftTraceOffsetX = 0f
+        shiftTraceOffsetY = 0f
+    }
+
     fun drawOnionSkins(canvas: Canvas, project: AnimationProject) {
         if (!project.isOnionSkinEnabled) return
 
         val currentIdx = project.currentFrameIndex
         val frames = project.frames
+
+        canvas.save()
+        if (isShifted()) {
+            canvas.translate(shiftTraceOffsetX, shiftTraceOffsetY)
+        }
 
         // 1. Render Past Frames (Ruby Red tint)
         val pastRange = project.onionPastCount
@@ -57,6 +82,8 @@ class OnionSkinRenderer {
                 )
             }
         }
+
+        canvas.restore()
     }
 
     private fun drawGhostFrame(
