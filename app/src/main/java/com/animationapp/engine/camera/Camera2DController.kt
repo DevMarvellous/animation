@@ -196,3 +196,4 @@ class Camera2DController {
         canvas.restore()
     }
 }
+

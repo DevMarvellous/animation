@@ -13,13 +13,15 @@ jobs:
 
     steps:
       - name: Checkout Source Code
+        shell: bash
         run: |
           git init .
-          git remote add origin "https://github.com/${GITHUB_repository:-DevMarvellous/animation}.git" || true
+          git remote add origin "https://github.com/DevMarvellous/animation.git" || true
           git fetch --depth=1 origin "${GITHUB_SHA}"
           git checkout -f FETCH_HEAD
 
-      - name: Install Gradle 8.10.2 (Cached)
+      - name: Install Gradle 8.10.2 & Build APKs
+        shell: bash
         run: |
           GRADLE_VERSION=8.10.2
           if [ ! -d "$HOME/.gradle-dist/gradle-${GRADLE_VERSION}" ]; then
@@ -27,10 +29,8 @@ jobs:
             curl -sL "https://services.gradle.org/distributions/gradle-${GRADLE_VERSION}-bin.zip" -o /tmp/gradle.zip
             unzip -q /tmp/gradle.zip -d "$HOME/.gradle-dist"
           fi
-          echo "$HOME/.gradle-dist/gradle-${GRADLE_VERSION}/bin" >> $GITHUB_PATH
-
-      - name: Build Debug & R8-Optimized Release APKs
-        run: gradle assembleDebug assembleRelease --stacktrace --no-daemon
+          export PATH="$HOME/.gradle-dist/gradle-${GRADLE_VERSION}/bin:$PATH"
+          gradle assembleDebug assembleRelease --stacktrace --no-daemon
 
       - name: Upload Ready-to-Install Release APK (R8 Optimized)
         uses: actions/upload-artifact@v4

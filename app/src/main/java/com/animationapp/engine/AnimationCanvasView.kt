@@ -11,11 +11,13 @@ import android.graphics.RectF
 import android.os.SystemClock
 import android.view.MotionEvent
 import android.view.View
+import com.animationapp.audio.LipSyncAudioEngine
 import com.animationapp.core.config.StudioConfig
 import com.animationapp.core.config.StudioPreferences
 import com.animationapp.core.diagnostics.CrashReporter
 import com.animationapp.core.profiler.PerformanceHud
 import com.animationapp.core.storage.CrashSafeAutosave
+import com.animationapp.engine.brush.BrushPreset
 import com.animationapp.engine.brush.InputStabilizer
 import com.animationapp.engine.camera.Camera2DController
 import com.animationapp.engine.canvas.ViewportController
@@ -31,16 +33,7 @@ import kotlin.math.atan2
 import kotlin.math.hypot
 
 /**
- * Hardware-accelerated, zero-allocation Multi-Layer 2D Animation Stage & Viewport Engine (Phase 8).
- *
- * Capabilities:
- * - Multi-Layer Compositing (Visibility, Opacity, Blend Modes, Alpha Lock, Reference Layer Fill).
- * - 2D Camera Keyframe & Smoothstep Tweening (`CAMERA_2D`): Pan & Truck-In/Out across frames.
- * - Vector Intersection Stroke Cutter (`VECTOR_CUTTER` / `✂ Trim`): Swipe across strokes to cut cleanly.
- * - Freehand 2D Lasso Selection & Transform Gizmo (`LASSO`): Move, Scale, and Rotate 2D strokes in place.
- * - Shift-and-Trace Virtual Light Table (`SHIFT_TRACE`): Temporarily slide ghost onion skins.
- * - Smart Scanline Flood-Fill Bucket (`FILL_BUCKET`) with Reference Layer & 1px under-line color trapping.
- * - Stylus-Only Palm Rejection & Low-Spec Turbo Mode (`StudioPreferences`).
+ * Hardware-accelerated, zero-allocation Multi-Layer 2D Animation Stage & Viewport Engine (Phases 9, 10 & 11).
  */
 class AnimationCanvasView(
     context: Context,
@@ -66,6 +59,7 @@ class AnimationCanvasView(
                 invalidate()
             }
         }
+    var activeBrushPreset: BrushPreset = BrushPreset.G_PEN
     var brushColor: Int = Color.rgb(20, 22, 28)
     var brushSizePx: Float = StudioConfig.DEFAULT_BRUSH_SIZE_PX
     var eraserSizePx: Float = StudioConfig.DEFAULT_ERASER_SIZE_PX
@@ -177,7 +171,6 @@ class AnimationCanvasView(
         val scratchCanvas = scratchLayerCanvas ?: return
         val scratchBmp = scratchLayerBitmap ?: return
 
-        strokePaint.isAntiAlias = !StudioPreferences.lowSpecTurboMode
         compCanvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
 
         val layers = project.layers
@@ -218,13 +211,18 @@ class AnimationCanvasView(
             strokePaint.xfermode = eraserXfermode
             strokePaint.strokeWidth = stroke.baseSize
             strokePaint.color = Color.TRANSPARENT
+            strokePaint.maskFilter = null
         } else {
+            stroke.brushPreset.applyToPaint(strokePaint, stroke.color, stroke.baseSize)
+            if (StudioPreferences.lowSpecTurboMode) {
+                strokePaint.isAntiAlias = false
+                strokePaint.maskFilter = null
+            }
             strokePaint.xfermode = if (useAlphaLock) alphaLockXfermode else null
-            strokePaint.color = stroke.color
-            strokePaint.strokeWidth = stroke.baseSize
         }
         targetCanvas.drawPath(stroke.renderPath, strokePaint)
         strokePaint.xfermode = null
+        strokePaint.maskFilter = null
     }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
@@ -235,7 +233,7 @@ class AnimationCanvasView(
     }
 
     override fun onDraw(canvas: Canvas) {
-        // 1. Advance timeline playback if playing (respecting per-frame Exposure Holds)
+        // 1. Advance timeline playback if playing (respecting per-frame Exposure Holds & Lip-Sync Audio)
         if (isPlaying) {
             val now = SystemClock.uptimeMillis()
             val tickDurationMs = (1000L / project.fps.coerceAtLeast(1))
@@ -246,6 +244,7 @@ class AnimationCanvasView(
                     currentHoldTick = 0
                     project.stepForwardLooping()
                     project.currentFrame.isCacheDirty = true
+                    LipSyncAudioEngine.playFrameScrubSlice(project.currentFrame.phonemeMarker)
                     onStateChanged?.invoke()
                 }
             }
@@ -281,7 +280,7 @@ class AnimationCanvasView(
             draw2DCompositionGrid(canvas)
         }
 
-        // 6. Draw multi-frame tinted Onion Skins (when paused and not blocked by Low-Spec Turbo)
+        // 6. Draw multi-frame tinted Onion Skins
         if (!isPlaying && project.isOnionSkinEnabled) {
             onionSkinRenderer.drawOnionSkins(canvas, project)
         }
@@ -360,6 +359,7 @@ class AnimationCanvasView(
     private fun previewActiveStroke(canvas: Canvas, stroke: Stroke) {
         if (stroke.isEraser) {
             strokePaint.xfermode = null
+            strokePaint.maskFilter = null
             strokePaint.color = Color.WHITE
             strokePaint.strokeWidth = stroke.baseSize
             canvas.drawPath(stroke.renderPath, strokePaint)
@@ -392,7 +392,7 @@ class AnimationCanvasView(
             return true
         }
 
-        // Stylus-Only Palm Rejection Check: if enabled, ignore single-finger capacitive touches unless using a Stylus
+        // Stylus-Only Palm Rejection Check
         if (StudioPreferences.stylusOnlyPalmRejection) {
             val toolType = event.getToolType(0)
             if (toolType != MotionEvent.TOOL_TYPE_STYLUS && toolType != MotionEvent.TOOL_TYPE_ERASER) {
@@ -407,7 +407,7 @@ class AnimationCanvasView(
         val stageX = viewport.screenToStageX(event.x, event.y)
         val stageY = viewport.screenToStageY(event.x, event.y)
 
-        // Handle 2D Camera Keyframe Tool (Drag to Pan 2D Camera on current frame)
+        // Handle 2D Camera Keyframe Tool
         if (activeTool == StudioToolType.CAMERA_2D) {
             when (action) {
                 MotionEvent.ACTION_DOWN -> {
@@ -554,13 +554,23 @@ class AnimationCanvasView(
                 stabilizer.reset(stageX, stageY)
                 val isEraser = (activeTool == StudioToolType.ERASER)
                 val size = if (isEraser) eraserSizePx else brushSizePx
-                val stroke = Stroke(color = brushColor, baseSize = size, isEraser = isEraser)
+                val stroke = Stroke(
+                    color = brushColor,
+                    baseSize = size,
+                    isEraser = isEraser,
+                    brushPreset = activeBrushPreset
+                )
                 stroke.addPoint(stabilizer.smoothedX, stabilizer.smoothedY, pressure)
                 activeStroke = stroke
 
                 if (isVerticalSymmetryEnabled) {
                     val mirrorX = (2f * stageCenterX) - stabilizer.smoothedX
-                    val mStroke = Stroke(color = brushColor, baseSize = size, isEraser = isEraser)
+                    val mStroke = Stroke(
+                        color = brushColor,
+                        baseSize = size,
+                        isEraser = isEraser,
+                        brushPreset = activeBrushPreset
+                    )
                     mStroke.addPoint(mirrorX, stabilizer.smoothedY, pressure)
                     activeMirrorStroke = mStroke
                 } else {
@@ -802,6 +812,7 @@ class AnimationCanvasView(
         currentHoldTick = 0
         if (isPlaying) {
             lastPlaybackStepTimeMs = SystemClock.uptimeMillis()
+            LipSyncAudioEngine.playFrameScrubSlice(project.currentFrame.phonemeMarker)
             postInvalidateOnAnimation()
         } else {
             project.currentFrame.isCacheDirty = true
@@ -825,6 +836,7 @@ class AnimationCanvasView(
         lassoController.clearSelection()
         project.selectFrame(index)
         project.currentFrame.isCacheDirty = true
+        LipSyncAudioEngine.playFrameScrubSlice(project.currentFrame.phonemeMarker)
         onStateChanged?.invoke()
         invalidate()
     }

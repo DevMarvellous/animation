@@ -4,20 +4,24 @@ import android.graphics.Matrix
 import android.graphics.Path
 import android.graphics.RectF
 import com.animationapp.core.config.StudioConfig
+import com.animationapp.engine.brush.BrushPreset
 import kotlin.math.abs
 
 /**
- * Memory-packed 2D vector stroke representation.
+ * Memory-packed 2D vector stroke representation (Phase 11).
  *
  * Uses a single primitive FloatArray (interleaved x, y, pressure) instead of ArrayList<Point>
  * to eliminate object header overhead and prevent Garbage Collection pauses on budget phones.
  *
- * Supports in-place 2D affine transformations (Translate, Scale, Rotate) for the Lasso Tool!
+ * Supports:
+ * - Pluggable `BrushPreset` (G-Pen, Sketch Pencil, Marker, Soft Airbrush, Pixel-Art).
+ * - In-place 2D affine transformations (Translate, Scale, Rotate) for the Lasso Tool.
  */
 class Stroke(
     val color: Int,
     val baseSize: Float,
-    val isEraser: Boolean = false
+    val isEraser: Boolean = false,
+    val brushPreset: BrushPreset = BrushPreset.G_PEN
 ) {
     // Interleaved [x0, y0, p0, x1, y1, p1, ...]
     private var pointData = FloatArray(StudioConfig.INITIAL_STROKE_FLOAT_CAPACITY)
@@ -112,7 +116,7 @@ class Stroke(
     fun getPressure(index: Int): Float = pointData[index * 3 + 2]
 
     fun deepCopy(): Stroke {
-        val copy = Stroke(color, baseSize, isEraser)
+        val copy = Stroke(color, baseSize, isEraser, brushPreset)
         copy.pointData = pointData.copyOf(pointCount * 3)
         copy.pointCount = pointCount
         copy.renderPath.set(renderPath)

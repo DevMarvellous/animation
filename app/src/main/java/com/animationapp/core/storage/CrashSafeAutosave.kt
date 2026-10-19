@@ -1,7 +1,9 @@
 package com.animationapp.core.storage
 
 import android.content.Context
+import com.animationapp.audio.LipSyncPhoneme
 import com.animationapp.core.diagnostics.CrashReporter
+import com.animationapp.engine.brush.BrushPreset
 import com.animationapp.model.AnimationFrame
 import com.animationapp.model.AnimationLayer
 import com.animationapp.model.AnimationProject
@@ -17,15 +19,11 @@ import java.io.FileOutputStream
 import java.util.concurrent.Executors
 
 /**
- * Atomic Binary Crash-Safe Autosave Engine.
- *
- * Writes the entire multi-layer animation project to a temporary file (`autosave.pas.tmp`)
- * on a dedicated background thread and atomically renames it to `autosave.pas`.
- * Even if a budget phone's battery dies mid-write, the project file is never corrupted!
+ * Atomic Binary Crash-Safe Autosave Engine (v2 — supports BrushPreset & LipSyncPhoneme).
  */
 object CrashSafeAutosave {
 
-    private const val MAGIC_HEADER = 0x50415331 // "PAS1" (ProAnimation Studio v1)
+    private const val MAGIC_HEADER = 0x50415332 // "PAS2" (ProAnimation Studio v2)
     private const val AUTOSAVE_FILE = "autosave.pas"
     private const val AUTOSAVE_TMP_FILE = "autosave.pas.tmp"
 
@@ -33,7 +31,6 @@ object CrashSafeAutosave {
 
     fun saveAsync(context: Context, project: AnimationProject) {
         val appContext = context.applicationContext
-        // Take a lightweight snapshot of data on UI thread or synchronize safely
         ioExecutor.execute {
             try {
                 writeProjectAtomically(appContext, project)
@@ -55,7 +52,6 @@ object CrashSafeAutosave {
             out.writeInt(project.activeLayerIndex)
             out.writeInt(project.currentFrameIndex)
 
-            // Write Layers
             val layerCount = project.layers.size
             out.writeInt(layerCount)
             for (i in 0 until layerCount) {
@@ -69,12 +65,12 @@ object CrashSafeAutosave {
                 out.writeInt(layer.blendMode.ordinal)
             }
 
-            // Write Frames & LayerCels
             val frameCount = project.frames.size
             out.writeInt(frameCount)
             for (fIdx in 0 until frameCount) {
                 val frame = project.frames[fIdx]
                 out.writeInt(frame.exposureHold)
+                out.writeInt(frame.phonemeMarker.ordinal)
                 for (lIdx in 0 until layerCount) {
                     val cel = frame.getCel(lIdx)
                     val strokes = cel.strokes
@@ -84,6 +80,7 @@ object CrashSafeAutosave {
                         out.writeInt(s.color)
                         out.writeFloat(s.baseSize)
                         out.writeBoolean(s.isEraser)
+                        out.writeInt(s.brushPreset.ordinal)
                         val ptCount = s.pointCount
                         out.writeInt(ptCount)
                         for (p in 0 until ptCount) {
@@ -144,9 +141,16 @@ object CrashSafeAutosave {
 
                 val frameCount = input.readInt().coerceIn(1, 2000)
                 targetProject.frames.clear()
+                val phonemes = LipSyncPhoneme.values()
+                val presets = BrushPreset.values()
                 for (fIdx in 0 until frameCount) {
                     val hold = input.readInt().coerceIn(1, 24)
-                    val frame = AnimationFrame(layerCount = layerCount, exposureHold = hold)
+                    val phOrd = input.readInt().coerceIn(0, phonemes.lastIndex)
+                    val frame = AnimationFrame(
+                        layerCount = layerCount,
+                        exposureHold = hold,
+                        phonemeMarker = phonemes[phOrd]
+                    )
                     for (lIdx in 0 until layerCount) {
                         val cel = frame.getCel(lIdx)
                         val strokeCount = input.readInt().coerceIn(0, 50000)
@@ -154,8 +158,9 @@ object CrashSafeAutosave {
                             val color = input.readInt()
                             val size = input.readFloat()
                             val isEraser = input.readBoolean()
+                            val presetOrd = input.readInt().coerceIn(0, presets.lastIndex)
                             val ptCount = input.readInt().coerceIn(0, 50000)
-                            val stroke = Stroke(color, size, isEraser)
+                            val stroke = Stroke(color, size, isEraser, presets[presetOrd])
                             for (p in 0 until ptCount) {
                                 val x = input.readFloat()
                                 val y = input.readFloat()
@@ -174,7 +179,7 @@ object CrashSafeAutosave {
 
                 targetProject.selectLayer(savedActiveLayer)
                 targetProject.selectFrame(savedFrameIdx)
-                CrashReporter.logInfo("Autosave", "Restored ${targetProject.frames.size} frames & ${targetProject.layers.size} layers from disk")
+                CrashReporter.logInfo("Autosave", "Restored ${targetProject.frames.size} frames & ${targetProject.layers.size} layers from PAS2")
                 true
             }
         } catch (t: Throwable) {
@@ -183,4 +188,3 @@ object CrashSafeAutosave {
         }
     }
 }
-

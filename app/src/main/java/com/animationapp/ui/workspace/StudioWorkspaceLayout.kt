@@ -6,6 +6,7 @@ import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.widget.CheckBox
 import android.widget.FrameLayout
@@ -15,28 +16,40 @@ import android.widget.ScrollView
 import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
+import com.animationapp.audio.LipSyncAudioEngine
+import com.animationapp.audio.LipSyncPhoneme
 import com.animationapp.core.config.StudioPreferences
 import com.animationapp.core.diagnostics.CrashReporter
 import com.animationapp.engine.AnimationCanvasView
+import com.animationapp.engine.brush.BrushPreset
 import com.animationapp.engine.tools.StudioToolType
 import com.animationapp.export.HardwareVideoExporter
+import com.animationapp.export.SpriteSheetExporter
 import com.animationapp.model.LayerBlendMode
+import com.animationapp.ui.reference.ReferencePinboardView
 
 /**
- * Modular, zero-bloat Native Pro 2D Studio Workspace UI (Phase 8).
+ * Modular, zero-bloat Native Pro 2D Studio Workspace UI (Phases 9, 10 & 11).
  *
  * Includes:
  * - Top Action Bar: Undo, Redo, Layers Manager (`🗂 Layers`), Onion Skin Toggle, Symmetry Guide (`🦋 Sym`),
- *   2D Camera Dialog (`🎥 2D Cam`), Mirror Flip (`⇄ Flip`), Fit/Reset Light Table (`⛶ Fit`), FPS Selector,
- *   Brush Studio (`⚙ Brush`), Live UX & Comfort Tuner (`🎛 Tune UX`), 1080p Hardware MP4 Export (`🎬 Export MP4`),
- *   Left/Right Hand Flip (`✋ L/R`), Logs (`🐞 Logs`).
- * - Dockable Tool & Color Bar: Pen (`✏ Pen`), Eraser (`⌫ Erase`), Vector Cutter (`✂ Trim`),
- *   2D Lasso Transform (`⬠ Lasso`), Smart Fill Bucket (`🪣 Fill`), Eyedropper (`💧 Pick`),
- *   2D Camera Drag (`🎥 Cam`), Shift-and-Trace Light Table (`💡 Shift`), Pan/Zoom (`✥ Pan`).
+ *   2D Camera Dialog (`🎥 2D Cam`), Lip-Sync Mouth Chart (`👄 LipSync`), Floating Reference Pinboard (`📌 Ref`),
+ *   Mirror Flip (`⇄ Flip`), Fit Stage (`⛶ Fit`), FPS Selector, Brush Preset Studio (`⚙ Brush`),
+ *   Live UX Comfort Tuner (`🎛 Tune UX`), Export Suite (`🎬 Export`), Left/Right Hand Flip, Logs.
+ * - Bottom Timeline Scrubber: Play/Pause, Step Back/Forward, Flipbook Roll Scrub (`📖 Roll`),
+ *   Frame Pills (with Lip-Sync phoneme & Exposure Hold badges), Hold Timing (`⏱ 1s`), +Add, Clone, Delete.
  */
 class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activity) {
 
     val canvasView = AnimationCanvasView(activity)
+    private val referencePinboard = ReferencePinboardView(activity) { pickedColor ->
+        canvasView.brushColor = pickedColor
+        if (canvasView.activeTool == StudioToolType.ERASER || canvasView.activeTool == StudioToolType.HAND_PAN) {
+            selectTool(StudioToolType.BRUSH)
+        } else {
+            refreshUiState()
+        }
+    }
 
     private var isLeftHandedMode = false
     private lateinit var toolDockContainer: LinearLayout
@@ -46,6 +59,9 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
     private lateinit var onionBtn: TextView
     private lateinit var symBtn: TextView
     private lateinit var camBtn: TextView
+    private lateinit var lipSyncBtn: TextView
+    private lateinit var refPinBtn: TextView
+    private lateinit var brushBtn: TextView
     private lateinit var mirrorBtn: TextView
     private lateinit var fpsBtn: TextView
     private lateinit var exportBtn: TextView
@@ -53,6 +69,9 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
     private lateinit var sizeLabel: TextView
     private lateinit var activeColorDot: View
     private lateinit var toolButtons: Map<StudioToolType, TextView>
+
+    private var rollStartX = 0f
+    private var rollAnchorFrameIdx = 0
 
     private val studioColors = intArrayOf(
         Color.rgb(20, 22, 28),    // Ink Black
@@ -75,14 +94,24 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
             LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
         )
 
-        // 2. Build Top Studio Action Bar
+        // 2. Add Floating Draggable Reference Pinboard (Hidden by default until `📌 Ref` tapped)
+        referencePinboard.visibility = View.GONE
+        addView(
+            referencePinboard,
+            LayoutParams(dp(250f), dp(195f), Gravity.TOP or Gravity.START).apply {
+                leftMargin = dp(24f)
+                topMargin = dp(95f)
+            }
+        )
+
+        // 3. Build Top Studio Action Bar
         addView(buildTopActionBar())
 
-        // 3. Build Side Dockable Tool & Color Panel
+        // 4. Build Side Dockable Tool & Color Panel
         toolDockContainer = buildSideToolDock()
         addView(toolDockContainer)
 
-        // 4. Build Bottom Animation Timeline Bar
+        // 5. Build Bottom Animation Timeline Bar
         addView(buildBottomTimelineBar())
 
         // Wire callbacks
@@ -121,6 +150,16 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
             show2DCameraKeyframeDialog()
         }
 
+        lipSyncBtn = createStudioButton("👄 LipSync") {
+            showLipSyncPhonemeDialog()
+        }
+
+        refPinBtn = createStudioButton("📌 Ref") {
+            val nowVisible = (referencePinboard.visibility != View.VISIBLE)
+            referencePinboard.visibility = if (nowVisible) View.VISIBLE else View.GONE
+            refreshUiState()
+        }
+
         mirrorBtn = createStudioButton("⇄ Flip") {
             canvasView.toggleMirrorHorizontal()
         }
@@ -133,7 +172,7 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
             showFpsPickerDialog()
         }
 
-        val btnSliders = createStudioButton("⚙ Brush") {
+        brushBtn = createStudioButton("✒ G-Pen") {
             showBrushSettingsDialog()
         }
 
@@ -141,8 +180,8 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
             showUxComfortTunerDialog()
         }
 
-        exportBtn = createStudioButton("🎬 Export MP4") {
-            triggerHardwareMp4Export()
+        exportBtn = createStudioButton("🎬 Export") {
+            showExportSuiteDialog()
         }
 
         val btnHandMode = createStudioButton("✋ L/R") {
@@ -154,8 +193,8 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
         }
 
         listOf(
-            btnUndo, btnRedo, layersBtn, onionBtn, symBtn, camBtn, mirrorBtn,
-            btnFit, fpsBtn, btnSliders, btnTuneUx, exportBtn, btnHandMode, btnDiag
+            btnUndo, btnRedo, layersBtn, onionBtn, symBtn, camBtn, lipSyncBtn, refPinBtn,
+            mirrorBtn, btnFit, fpsBtn, brushBtn, btnTuneUx, exportBtn, btnHandMode, btnDiag
         ).forEach { btn ->
             val lp = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
@@ -238,7 +277,6 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
         }
         dock.addView(sizeLabel)
 
-        // Active color indicator ring
         activeColorDot = View(context).apply {
             background = createColorOval(canvasView.brushColor, strokeWidthDp = 3f, strokeColor = Color.WHITE)
         }
@@ -247,7 +285,6 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
             LinearLayout.LayoutParams(dp(24f), dp(24f)).apply { bottomMargin = dp(4f) }
         )
 
-        // Scrollable Swatch Strip
         val colorColumn = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
@@ -300,6 +337,7 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
             canvasView.pausePlayback()
             canvasView.project.stepBackwardLooping()
             canvasView.project.currentFrame.isCacheDirty = true
+            LipSyncAudioEngine.playFrameScrubSlice(canvasView.project.currentFrame.phonemeMarker)
             refreshUiState()
             canvasView.invalidate()
         }
@@ -312,8 +350,39 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
             canvasView.pausePlayback()
             canvasView.project.stepForwardLooping()
             canvasView.project.currentFrame.isCacheDirty = true
+            LipSyncAudioEngine.playFrameScrubSlice(canvasView.project.currentFrame.phonemeMarker)
             refreshUiState()
             canvasView.invalidate()
+        }
+
+        // Flipbook Quick-Roll Widget (`📖 Roll`): Slide finger left/right to rapidly flip neighboring drawings!
+        val btnFlipbookRoll = TextView(context).apply {
+            text = "📖 Roll"
+            gravity = Gravity.CENTER
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            setTextColor(Color.WHITE)
+            setPadding(dp(9f), dp(4f), dp(9f), dp(4f))
+            background = createRoundedBg(Color.rgb(65, 85, 130), dp(8f))
+            setOnTouchListener { _, event ->
+                when (event.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> {
+                        canvasView.pausePlayback()
+                        rollStartX = event.rawX
+                        rollAnchorFrameIdx = canvasView.project.currentFrameIndex
+                        true
+                    }
+                    MotionEvent.ACTION_MOVE -> {
+                        val deltaFrames = ((event.rawX - rollStartX) / dp(22f)).toInt()
+                        val targetIdx = (rollAnchorFrameIdx + deltaFrames)
+                            .coerceIn(0, canvasView.project.frames.lastIndex)
+                        if (targetIdx != canvasView.project.currentFrameIndex) {
+                            canvasView.selectFrame(targetIdx)
+                        }
+                        true
+                    }
+                    else -> true
+                }
+            }
         }
 
         holdBtn = createStudioButton("⏱ 1s") {
@@ -343,7 +412,7 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
         }
 
         val controlMargin = dp(5f)
-        listOf(btnPrev, playPauseBtn, btnNext, holdBtn).forEach { btn ->
+        listOf(btnPrev, playPauseBtn, btnNext, btnFlipbookRoll, holdBtn).forEach { btn ->
             bottomContainer.addView(
                 btn,
                 LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(36f)).apply {
@@ -393,15 +462,32 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
         toolDockContainer.layoutParams = lp
     }
 
+    private fun showExportSuiteDialog() {
+        val options = arrayOf(
+            "🎬 Export 1080p MP4 Video (Hardware H.264 to Movies/)",
+            "👾 Export 2D Sprite Sheet PNG + JSON Atlas (to Pictures/)"
+        )
+        AlertDialog.Builder(activity)
+            .setTitle("Pro Export Suite")
+            .setItems(options) { _, which ->
+                if (which == 0) {
+                    triggerHardwareMp4Export()
+                } else {
+                    triggerSpriteSheetExport()
+                }
+            }
+            .show()
+    }
+
     private fun triggerHardwareMp4Export() {
         canvasView.pausePlayback()
-        exportBtn.text = "⏳ Rendering..."
+        exportBtn.text = "⏳ MP4..."
         exportBtn.isEnabled = false
         styleButton(exportBtn, isHighlighted = true, accentColor = Color.rgb(245, 160, 35))
 
         HardwareVideoExporter.exportMp4Async(activity, canvasView.project) { success, message ->
             post {
-                exportBtn.text = "🎬 Export MP4"
+                exportBtn.text = "🎬 Export"
                 exportBtn.isEnabled = true
                 styleButton(exportBtn, isHighlighted = false, accentColor = Color.rgb(42, 46, 58))
 
@@ -410,6 +496,31 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
                 } else {
                     AlertDialog.Builder(activity)
                         .setTitle("Export Error")
+                        .setMessage(message)
+                        .setPositiveButton("OK", null)
+                        .show()
+                }
+            }
+        }
+    }
+
+    private fun triggerSpriteSheetExport() {
+        canvasView.pausePlayback()
+        exportBtn.text = "⏳ Sheet..."
+        exportBtn.isEnabled = false
+        styleButton(exportBtn, isHighlighted = true, accentColor = Color.rgb(0, 195, 255))
+
+        SpriteSheetExporter.exportSpriteSheetAsync(activity, canvasView.project) { success, message ->
+            post {
+                exportBtn.text = "🎬 Export"
+                exportBtn.isEnabled = true
+                styleButton(exportBtn, isHighlighted = false, accentColor = Color.rgb(42, 46, 58))
+
+                if (success) {
+                    Toast.makeText(activity, "Saved Sprite Sheet to $message", Toast.LENGTH_LONG).show()
+                } else {
+                    AlertDialog.Builder(activity)
+                        .setTitle("Sprite Sheet Export Error")
                         .setMessage(message)
                         .setPositiveButton("OK", null)
                         .show()
@@ -439,6 +550,19 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
         val hasCamKey = canvasView.camera2D.hasKeyframeAt(proj.currentFrameIndex)
         camBtn.text = if (hasCamKey) "🎥 Cam [KEY]" else "🎥 2D Cam"
         styleButton(camBtn, isHighlighted = hasCamKey, accentColor = Color.rgb(230, 155, 20))
+
+        val phoneme = proj.currentFrame.phonemeMarker
+        lipSyncBtn.text = if (phoneme != LipSyncPhoneme.NONE) "👄 ${phoneme.code}" else "👄 LipSync"
+        styleButton(lipSyncBtn, isHighlighted = (phoneme != LipSyncPhoneme.NONE), accentColor = Color.rgb(235, 70, 150))
+
+        styleButton(
+            refPinBtn,
+            isHighlighted = (referencePinboard.visibility == View.VISIBLE),
+            accentColor = Color.rgb(0, 185, 165)
+        )
+
+        val preset = canvasView.activeBrushPreset
+        brushBtn.text = "${preset.icon} ${preset.label}"
 
         styleButton(mirrorBtn, isHighlighted = canvasView.viewport.isMirroredHorizontally, accentColor = Color.rgb(0, 180, 255))
 
@@ -472,10 +596,12 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
             val isCurrent = (i == activeIdx)
             val hasInk = frame.hasAnyContent()
             val hasCam = canvasView.camera2D.hasKeyframeAt(i)
+            val phoneme = frame.phonemeMarker
             val holdSuffix = if (frame.exposureHold > 1) " (x${frame.exposureHold})" else ""
             val dotSuffix = if (hasInk) "•" else ""
             val camSuffix = if (hasCam) "🎥" else ""
-            val pillLabel = "${i + 1}$dotSuffix$camSuffix$holdSuffix"
+            val phSuffix = if (phoneme != LipSyncPhoneme.NONE) "[${phoneme.code}]" else ""
+            val pillLabel = "${i + 1}$dotSuffix$camSuffix$phSuffix$holdSuffix"
 
             val pill = TextView(context).apply {
                 text = pillLabel
@@ -497,6 +623,25 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
             ).apply { marginEnd = dp(5f) }
             frameStripLayout.addView(pill, lp)
         }
+    }
+
+    private fun showLipSyncPhonemeDialog() {
+        val phonemes = LipSyncPhoneme.values()
+        val labels = Array(phonemes.size) { idx ->
+            val p = phonemes[idx]
+            if (p == LipSyncPhoneme.NONE) "🚫 Clear Mouth Marker" else "👄 [${p.code}] — ${p.description}"
+        }
+
+        AlertDialog.Builder(activity)
+            .setTitle("2D Lip-Sync Mouth Chart (Frame ${canvasView.project.currentFrameIndex + 1})")
+            .setItems(labels) { _, which ->
+                val chosen = phonemes[which]
+                canvasView.project.currentFrame.phonemeMarker = chosen
+                LipSyncAudioEngine.playFrameScrubSlice(chosen)
+                canvasView.triggerAutosave()
+                refreshUiState()
+            }
+            .show()
     }
 
     private fun show2DCameraKeyframeDialog() {
@@ -612,10 +757,20 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
             }
         }
 
+        val cbAudioScrub = CheckBox(context).apply {
+            text = "Play Lip-Sync Phoneme Audio Scrub Slices"
+            setTextColor(Color.WHITE)
+            isChecked = LipSyncAudioEngine.isAudioScrubEnabled
+            setOnCheckedChangeListener { _, checked ->
+                LipSyncAudioEngine.isAudioScrubEnabled = checked
+            }
+        }
+
         layout.addView(cbStylusOnly)
         layout.addView(cbTapUndo)
         layout.addView(cbTurbo)
         layout.addView(cbGrid)
+        layout.addView(cbAudioScrub)
 
         AlertDialog.Builder(activity)
             .setTitle("Live UX & Device Comfort Tuner")
@@ -762,12 +917,40 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
     private fun showBrushSettingsDialog() {
         val layout = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(20f), dp(16f), dp(20f), dp(8f))
+            setPadding(dp(20f), dp(14f), dp(20f), dp(8f))
         }
+
+        val presetLabel = TextView(context).apply {
+            text = "Select 2D Brush Preset:"
+            setTextColor(Color.WHITE)
+            setPadding(0, 0, 0, dp(6f))
+        }
+        layout.addView(presetLabel)
+
+        val presetRow = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+        }
+        for (preset in BrushPreset.values()) {
+            val btn = createStudioButton("${preset.icon} ${preset.label}") {
+                canvasView.activeBrushPreset = preset
+                selectTool(StudioToolType.BRUSH)
+            }
+            styleButton(btn, isHighlighted = (canvasView.activeBrushPreset == preset), accentColor = Color.rgb(75, 123, 236))
+            presetRow.addView(
+                btn,
+                LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(34f)).apply { marginEnd = dp(6f) }
+            )
+        }
+        val presetScroll = HorizontalScrollView(context).apply {
+            isHorizontalScrollBarEnabled = false
+            addView(presetRow)
+        }
+        layout.addView(presetScroll)
 
         val brushTitle = TextView(context).apply {
             text = "Brush Size: ${canvasView.brushSizePx.toInt()} px"
             setTextColor(Color.WHITE)
+            setPadding(0, dp(10f), 0, 0)
         }
         val brushSeek = SeekBar(context).apply {
             max = 120
@@ -833,7 +1016,7 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
         layout.addView(stabSeek)
 
         AlertDialog.Builder(activity)
-            .setTitle("Brush & Stabilizer Studio")
+            .setTitle("2D Brush Presets & Stabilizer Studio")
             .setView(layout)
             .setPositiveButton("Done", null)
             .show()
@@ -867,6 +1050,7 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
             appendLine("Heap Memory: ${hud.usedRamMb} MB / ${hud.maxRamMb} MB")
             appendLine("Layers: ${proj.layers.size} (Active: ${proj.activeLayer.name})")
             appendLine("Total Frames: ${proj.frames.size} (Active Hold: ${proj.currentFrame.exposureHold}s)")
+            appendLine("Active Brush: ${canvasView.activeBrushPreset.label}")
             appendLine("Active Cel Strokes: ${proj.activeCel.strokes.size}")
             appendLine("2D Camera Keyframes: ${canvasView.camera2D.keyframes.size}")
             appendLine("Viewport Zoom: ${(canvasView.viewport.zoomScale * 100).toInt()}%")

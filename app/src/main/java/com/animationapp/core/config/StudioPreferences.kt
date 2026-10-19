@@ -61,3 +61,4 @@ object StudioPreferences {
             "LowSpecTurbo=$lowSpecTurboMode, Grid=$showGridOverlay]"
     }
 }
+

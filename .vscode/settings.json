@@ -1,5 +1,8 @@
 {
   "github-actions.workflows.pinned.workflows": [],
   "yaml.schemas": {},
-  "yaml.validate": false
+  "yaml.validate": false,
+  "files.associations": {
+    "*.yml": "plaintext"
+  }
 }

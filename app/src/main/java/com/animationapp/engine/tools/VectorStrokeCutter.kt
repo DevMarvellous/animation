@@ -115,3 +115,4 @@ object VectorStrokeCutter {
         return hypot(px - projX, py - projY)
     }
 }
+

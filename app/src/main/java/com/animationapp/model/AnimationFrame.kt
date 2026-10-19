@@ -1,16 +1,18 @@
 package com.animationapp.model
 
-import com.animationapp.core.config.StudioConfig
+import com.animationapp.audio.LipSyncPhoneme
 
 /**
  * Represents a vertical column in the timeline (a single Frame across multiple Layers).
  *
- * Supports Exposure Holds (1s, 2s, 3s, etc.) so holding a pose across multiple timeline ticks
- * requires zero duplicated memory.
+ * Supports:
+ * - Exposure Holds (1s, 2s, 3s, 4s) so holding a pose across multiple timeline ticks uses 0 extra memory.
+ * - Lip-Sync Phoneme Mouth Chart Marker (`LipSyncPhoneme`) for 2D voice/mouth synchronization.
  */
 class AnimationFrame(
     layerCount: Int = 2,
-    var exposureHold: Int = 1 // 1 = on 1s, 2 = on 2s, 3 = on 3s
+    var exposureHold: Int = 1,
+    var phonemeMarker: LipSyncPhoneme = LipSyncPhoneme.NONE
 ) {
     val cels = ArrayList<LayerCel>(layerCount)
 
@@ -30,7 +32,6 @@ class AnimationFrame(
         return cels[layerIndex]
     }
 
-    // Legacy convenience accessor for active layer strokes
     val strokes: ArrayList<Stroke>
         get() = getCel(0).strokes
 
@@ -71,7 +72,7 @@ class AnimationFrame(
     }
 
     fun duplicate(): AnimationFrame {
-        val dup = AnimationFrame(0, exposureHold)
+        val dup = AnimationFrame(0, exposureHold, phonemeMarker)
         for (i in 0 until cels.size) {
             dup.cels.add(cels[i].duplicate())
         }
