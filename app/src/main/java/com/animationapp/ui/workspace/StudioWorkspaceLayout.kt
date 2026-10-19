@@ -7,6 +7,7 @@ import android.graphics.drawable.GradientDrawable
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
+import android.widget.CheckBox
 import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
@@ -14,6 +15,7 @@ import android.widget.ScrollView
 import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
+import com.animationapp.core.config.StudioPreferences
 import com.animationapp.core.diagnostics.CrashReporter
 import com.animationapp.engine.AnimationCanvasView
 import com.animationapp.engine.tools.StudioToolType
@@ -21,17 +23,16 @@ import com.animationapp.export.HardwareVideoExporter
 import com.animationapp.model.LayerBlendMode
 
 /**
- * Modular, zero-bloat Native Pro 2D Studio Workspace UI (Phase 6 & 7).
+ * Modular, zero-bloat Native Pro 2D Studio Workspace UI (Phase 8).
  *
  * Includes:
  * - Top Action Bar: Undo, Redo, Layers Manager (`🗂 Layers`), Onion Skin Toggle, Symmetry Guide (`🦋 Sym`),
- *   Mirror Flip (`⇄ Flip`), Fit/Reset Light Table (`⛶ Fit`), FPS Selector, Brush Studio (`⚙ Brush`),
- *   1080p Hardware MP4 Export (`🎬 Export MP4`), Left/Right Hand Flip, Logs.
- * - Dockable Tool & Color Bar: Pen, Eraser, 2D Lasso Transform (`⬠ Lasso`), Smart Fill Bucket (`🪣 Fill`),
- *   Eyedropper (`💧 Pick`), Shift-and-Trace Light Table (`💡 Shift`), Pan/Zoom (`✥ Pan`),
- *   Active Color Indicator & Quick Color Swatches.
- * - Bottom Timeline Scrubber: Play/Pause, Step Back/Forward, Frame Pills (with Exposure Hold badge `x2`, `x3`),
- *   Hold Timing button (`⏱ 1s/2s/3s`), +Add Frame, Clone Frame, Delete Frame.
+ *   2D Camera Dialog (`🎥 2D Cam`), Mirror Flip (`⇄ Flip`), Fit/Reset Light Table (`⛶ Fit`), FPS Selector,
+ *   Brush Studio (`⚙ Brush`), Live UX & Comfort Tuner (`🎛 Tune UX`), 1080p Hardware MP4 Export (`🎬 Export MP4`),
+ *   Left/Right Hand Flip (`✋ L/R`), Logs (`🐞 Logs`).
+ * - Dockable Tool & Color Bar: Pen (`✏ Pen`), Eraser (`⌫ Erase`), Vector Cutter (`✂ Trim`),
+ *   2D Lasso Transform (`⬠ Lasso`), Smart Fill Bucket (`🪣 Fill`), Eyedropper (`💧 Pick`),
+ *   2D Camera Drag (`🎥 Cam`), Shift-and-Trace Light Table (`💡 Shift`), Pan/Zoom (`✥ Pan`).
  */
 class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activity) {
 
@@ -44,6 +45,7 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
     private lateinit var layersBtn: TextView
     private lateinit var onionBtn: TextView
     private lateinit var symBtn: TextView
+    private lateinit var camBtn: TextView
     private lateinit var mirrorBtn: TextView
     private lateinit var fpsBtn: TextView
     private lateinit var exportBtn: TextView
@@ -115,6 +117,10 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
             canvasView.toggleVerticalSymmetry()
         }
 
+        camBtn = createStudioButton("🎥 2D Cam") {
+            show2DCameraKeyframeDialog()
+        }
+
         mirrorBtn = createStudioButton("⇄ Flip") {
             canvasView.toggleMirrorHorizontal()
         }
@@ -131,6 +137,10 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
             showBrushSettingsDialog()
         }
 
+        val btnTuneUx = createStudioButton("🎛 Tune UX") {
+            showUxComfortTunerDialog()
+        }
+
         exportBtn = createStudioButton("🎬 Export MP4") {
             triggerHardwareMp4Export()
         }
@@ -144,8 +154,8 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
         }
 
         listOf(
-            btnUndo, btnRedo, layersBtn, onionBtn, symBtn, mirrorBtn,
-            btnFit, fpsBtn, btnSliders, exportBtn, btnHandMode, btnDiag
+            btnUndo, btnRedo, layersBtn, onionBtn, symBtn, camBtn, mirrorBtn,
+            btnFit, fpsBtn, btnSliders, btnTuneUx, exportBtn, btnHandMode, btnDiag
         ).forEach { btn ->
             val lp = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
@@ -178,35 +188,53 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
 
         val btnPen = createStudioButton("✏ Pen") { selectTool(StudioToolType.BRUSH) }
         val btnEraser = createStudioButton("⌫ Erase") { selectTool(StudioToolType.ERASER) }
+        val btnCutter = createStudioButton("✂ Trim") { selectTool(StudioToolType.VECTOR_CUTTER) }
         val btnLasso = createStudioButton("⬠ Lasso") { selectTool(StudioToolType.LASSO) }
         val btnBucket = createStudioButton("🪣 Fill") { selectTool(StudioToolType.FILL_BUCKET) }
         val btnPicker = createStudioButton("💧 Pick") { selectTool(StudioToolType.EYEDROPPER) }
+        val btnCamTool = createStudioButton("🎥 Cam") { selectTool(StudioToolType.CAMERA_2D) }
         val btnShift = createStudioButton("💡 Shift") { selectTool(StudioToolType.SHIFT_TRACE) }
         val btnPan = createStudioButton("✥ Pan") { selectTool(StudioToolType.HAND_PAN) }
 
         toolButtons = mapOf(
             StudioToolType.BRUSH to btnPen,
             StudioToolType.ERASER to btnEraser,
+            StudioToolType.VECTOR_CUTTER to btnCutter,
             StudioToolType.LASSO to btnLasso,
             StudioToolType.FILL_BUCKET to btnBucket,
             StudioToolType.EYEDROPPER to btnPicker,
+            StudioToolType.CAMERA_2D to btnCamTool,
             StudioToolType.SHIFT_TRACE to btnShift,
             StudioToolType.HAND_PAN to btnPan
         )
 
-        listOf(btnPen, btnEraser, btnLasso, btnBucket, btnPicker, btnShift, btnPan).forEach { btn ->
-            val lp = LinearLayout.LayoutParams(dp(74f), dp(30f)).apply {
+        val toolsColumn = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+        }
+
+        listOf(
+            btnPen, btnEraser, btnCutter, btnLasso, btnBucket,
+            btnPicker, btnCamTool, btnShift, btnPan
+        ).forEach { btn ->
+            val lp = LinearLayout.LayoutParams(dp(74f), dp(29f)).apply {
                 bottomMargin = dp(4f)
             }
-            dock.addView(btn, lp)
+            toolsColumn.addView(btn, lp)
         }
+
+        val toolsScroll = ScrollView(context).apply {
+            isVerticalScrollBarEnabled = false
+            addView(toolsColumn)
+        }
+        dock.addView(toolsScroll, LinearLayout.LayoutParams(LayoutParams.WRAP_CONTENT, dp(155f)))
 
         sizeLabel = TextView(context).apply {
             text = "${canvasView.brushSizePx.toInt()}px"
             setTextColor(Color.rgb(180, 190, 210))
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 11f)
             gravity = Gravity.CENTER
-            setPadding(0, dp(1f), 0, dp(2f))
+            setPadding(0, dp(2f), 0, dp(2f))
         }
         dock.addView(sizeLabel)
 
@@ -216,7 +244,7 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
         }
         dock.addView(
             activeColorDot,
-            LinearLayout.LayoutParams(dp(26f), dp(26f)).apply { bottomMargin = dp(5f) }
+            LinearLayout.LayoutParams(dp(24f), dp(24f)).apply { bottomMargin = dp(4f) }
         )
 
         // Scrollable Swatch Strip
@@ -237,7 +265,7 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
                     }
                 }
             }
-            val lp = LinearLayout.LayoutParams(dp(22f), dp(22f)).apply {
+            val lp = LinearLayout.LayoutParams(dp(21f), dp(21f)).apply {
                 bottomMargin = dp(4f)
             }
             colorColumn.addView(swatch, lp)
@@ -247,7 +275,7 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
             isVerticalScrollBarEnabled = false
             addView(colorColumn)
         }
-        dock.addView(swatchScroll, LinearLayout.LayoutParams(LayoutParams.WRAP_CONTENT, dp(88f)))
+        dock.addView(swatchScroll, LinearLayout.LayoutParams(LayoutParams.WRAP_CONTENT, dp(72f)))
 
         dock.layoutParams = LayoutParams(
             LayoutParams.WRAP_CONTENT,
@@ -393,35 +421,32 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
     fun refreshUiState() {
         val proj = canvasView.project
 
-        // Update Play/Pause button
         playPauseBtn.text = if (canvasView.isPlaying) "⏸ Pause" else "▶ Play"
         styleButton(playPauseBtn, isHighlighted = canvasView.isPlaying, accentColor = Color.rgb(0, 200, 130))
 
-        // Update Active Layer button label
         val activeLayer = proj.activeLayer
         val refBadge = if (activeLayer.isReferenceLayer) " [Ref]" else ""
         layersBtn.text = "🗂 ${activeLayer.name}$refBadge"
         styleButton(layersBtn, isHighlighted = true, accentColor = Color.rgb(95, 80, 210))
 
-        // Update Onion Skin button (show shifted badge if Virtual Light Table is shifted)
         val onionOn = proj.isOnionSkinEnabled
         val shiftTag = if (canvasView.onionSkinRenderer.isShifted()) " (Shifted)" else ""
         onionBtn.text = if (onionOn) "Onion: ON$shiftTag" else "Onion: OFF"
         styleButton(onionBtn, isHighlighted = onionOn, accentColor = Color.rgb(255, 75, 110))
 
-        // Update Symmetry button
         styleButton(symBtn, isHighlighted = canvasView.isVerticalSymmetryEnabled, accentColor = Color.rgb(0, 195, 255))
 
-        // Update Mirror Flip button
+        val hasCamKey = canvasView.camera2D.hasKeyframeAt(proj.currentFrameIndex)
+        camBtn.text = if (hasCamKey) "🎥 Cam [KEY]" else "🎥 2D Cam"
+        styleButton(camBtn, isHighlighted = hasCamKey, accentColor = Color.rgb(230, 155, 20))
+
         styleButton(mirrorBtn, isHighlighted = canvasView.viewport.isMirroredHorizontally, accentColor = Color.rgb(0, 180, 255))
 
-        // Update FPS & Exposure Hold labels
         fpsBtn.text = "${proj.fps} FPS"
         val hold = proj.currentFrame.exposureHold
         holdBtn.text = "⏱ ${hold}s"
         styleButton(holdBtn, isHighlighted = (hold > 1), accentColor = Color.rgb(245, 160, 35))
 
-        // Update Active Tool highlight
         toolButtons.forEach { (tool, btn) ->
             styleButton(btn, isHighlighted = (canvasView.activeTool == tool), accentColor = Color.rgb(75, 123, 236))
         }
@@ -446,9 +471,11 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
             val frame = frames[i]
             val isCurrent = (i == activeIdx)
             val hasInk = frame.hasAnyContent()
+            val hasCam = canvasView.camera2D.hasKeyframeAt(i)
             val holdSuffix = if (frame.exposureHold > 1) " (x${frame.exposureHold})" else ""
             val dotSuffix = if (hasInk) "•" else ""
-            val pillLabel = "${i + 1}$dotSuffix$holdSuffix"
+            val camSuffix = if (hasCam) "🎥" else ""
+            val pillLabel = "${i + 1}$dotSuffix$camSuffix$holdSuffix"
 
             val pill = TextView(context).apply {
                 text = pillLabel
@@ -470,6 +497,131 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
             ).apply { marginEnd = dp(5f) }
             frameStripLayout.addView(pill, lp)
         }
+    }
+
+    private fun show2DCameraKeyframeDialog() {
+        val frameIdx = canvasView.project.currentFrameIndex
+        val eval = FloatArray(4)
+        canvasView.camera2D.evaluateAtFrame(frameIdx, eval)
+
+        val layout = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20f), dp(14f), dp(20f), dp(10f))
+        }
+
+        val zoomPercent = (eval[2] * 100).toInt()
+        val zoomTitle = TextView(context).apply {
+            text = "2D Camera Zoom (Truck-In/Out) at Frame ${frameIdx + 1}: $zoomPercent%"
+            setTextColor(Color.WHITE)
+        }
+
+        val zoomSeek = SeekBar(context).apply {
+            max = 300
+            progress = zoomPercent.coerceIn(50, 300)
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(s: SeekBar?, p: Int, fromUser: Boolean) {
+                    val z = p.coerceAtLeast(40) / 100f
+                    canvasView.camera2D.evaluateAtFrame(frameIdx, eval)
+                    canvasView.camera2D.setOrUpdateKeyframe(frameIdx, eval[0], eval[1], z, eval[3])
+                    zoomTitle.text = "2D Camera Zoom (Truck-In/Out) at Frame ${frameIdx + 1}: ${p.coerceAtLeast(40)}%"
+                    refreshUiState()
+                    canvasView.invalidate()
+                }
+                override fun onStartTrackingTouch(s: SeekBar?) {}
+                override fun onStopTrackingTouch(s: SeekBar?) {}
+            })
+        }
+
+        val lensCheck = CheckBox(context).apply {
+            text = "Preview Stage Through 2D Camera Lens Now"
+            setTextColor(Color.WHITE)
+            isChecked = canvasView.camera2D.isCameraViewActive
+            setOnCheckedChangeListener { _, checked ->
+                canvasView.camera2D.isCameraViewActive = checked
+                canvasView.invalidate()
+            }
+        }
+
+        val btnClearKey = createStudioButton("🗑 Remove Camera Keyframe on Frame ${frameIdx + 1}") {
+            canvasView.camera2D.removeKeyframeAt(frameIdx)
+            refreshUiState()
+            canvasView.invalidate()
+        }
+
+        layout.addView(zoomTitle)
+        layout.addView(zoomSeek)
+        layout.addView(lensCheck)
+        layout.addView(
+            btnClearKey,
+            LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, dp(36f)).apply { topMargin = dp(10f) }
+        )
+
+        AlertDialog.Builder(activity)
+            .setTitle("2D Camera Keyframe & Tweening")
+            .setView(layout)
+            .setPositiveButton("Done", null)
+            .show()
+    }
+
+    private fun showUxComfortTunerDialog() {
+        val layout = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20f), dp(14f), dp(20f), dp(10f))
+        }
+
+        val cbStylusOnly = CheckBox(context).apply {
+            text = "Stylus-Only Mode (Palm Rejection — Ignore finger drawing)"
+            setTextColor(Color.WHITE)
+            isChecked = StudioPreferences.stylusOnlyPalmRejection
+            setOnCheckedChangeListener { _, checked ->
+                StudioPreferences.stylusOnlyPalmRejection = checked
+                StudioPreferences.save(context)
+            }
+        }
+
+        val cbTapUndo = CheckBox(context).apply {
+            text = "Enable 2-Finger Tap Undo & 3-Finger Tap Redo"
+            setTextColor(Color.WHITE)
+            isChecked = StudioPreferences.enableMultiTouchTapUndoRedo
+            setOnCheckedChangeListener { _, checked ->
+                StudioPreferences.enableMultiTouchTapUndoRedo = checked
+                StudioPreferences.save(context)
+            }
+        }
+
+        val cbTurbo = CheckBox(context).apply {
+            text = "Potato Phone Turbo Mode (Max FPS boost for weak budget devices)"
+            setTextColor(Color.WHITE)
+            isChecked = StudioPreferences.lowSpecTurboMode
+            setOnCheckedChangeListener { _, checked ->
+                StudioPreferences.lowSpecTurboMode = checked
+                StudioPreferences.save(context)
+                canvasView.project.currentFrame.isCacheDirty = true
+                canvasView.invalidate()
+            }
+        }
+
+        val cbGrid = CheckBox(context).apply {
+            text = "Show 2D Composition & Perspective Alignment Grid"
+            setTextColor(Color.WHITE)
+            isChecked = StudioPreferences.showGridOverlay
+            setOnCheckedChangeListener { _, checked ->
+                StudioPreferences.showGridOverlay = checked
+                StudioPreferences.save(context)
+                canvasView.invalidate()
+            }
+        }
+
+        layout.addView(cbStylusOnly)
+        layout.addView(cbTapUndo)
+        layout.addView(cbTurbo)
+        layout.addView(cbGrid)
+
+        AlertDialog.Builder(activity)
+            .setTitle("Live UX & Device Comfort Tuner")
+            .setView(layout)
+            .setPositiveButton("Save & Close", null)
+            .show()
     }
 
     private fun showLayerManagerDialog() {
@@ -664,6 +816,8 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
             setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(s: SeekBar?, p: Int, fromUser: Boolean) {
                     canvasView.stabilizer.strength = p / 100f
+                    StudioPreferences.defaultStabilizerPercent = p
+                    StudioPreferences.save(context)
                     stabTitle.text = "Streamline Stabilizer (Smoothness): $p%"
                 }
                 override fun onStartTrackingTouch(s: SeekBar?) {}
@@ -714,8 +868,9 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
             appendLine("Layers: ${proj.layers.size} (Active: ${proj.activeLayer.name})")
             appendLine("Total Frames: ${proj.frames.size} (Active Hold: ${proj.currentFrame.exposureHold}s)")
             appendLine("Active Cel Strokes: ${proj.activeCel.strokes.size}")
-            appendLine("Selected Lasso Strokes: ${canvasView.lassoController.selectedStrokes.size}")
+            appendLine("2D Camera Keyframes: ${canvasView.camera2D.keyframes.size}")
             appendLine("Viewport Zoom: ${(canvasView.viewport.zoomScale * 100).toInt()}%")
+            appendLine(StudioPreferences.toDiagnosticSummary())
         }
         CrashReporter.showLiveDiagnosticsDialog(activity, stats)
     }

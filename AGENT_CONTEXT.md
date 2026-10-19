@@ -16,28 +16,39 @@
 
 ---
 
-### 2. Current Project Status & Completed Milestones
-- **Current Phase**: Phases 1 through 7 Completed → Ready for Phase 8 (2D Camera Pan/Zoom Track, Vector Intersection Eraser, & Audio Track Scrubbing).
-- **GitHub Actions Status**: Verified GREEN (`conclusion: success`) on `https://github.com/DevMarvellous/animation/actions`.
+### 2. Current Project Status & Total 10-Phase Roadmap
+- **Total Phases Planned**: **10 Phases** (Phases 1 through 8 are now **COMPLETED**!).
+  - **Phase 1 (Done)**: Zero-bloat Kotlin setup & Cloud APK GitHub Actions pipeline.
+  - **Phase 2 (Done)**: Multi-touch 2D Viewport (Pan/Zoom/Rotate/Flip), Streamline Stabilizer, & In-App Crash Catcher.
+  - **Phase 3 (Done)**: Timeline Scrubber, FPS Selector (8–60 FPS), & Tinted Past/Future Onion Skinning.
+  - **Phase 4 (Done)**: Multi-Layer Compositor (Visibility, Opacity, Alpha Lock, Reference Layer, 5 Blend Modes).
+  - **Phase 5 (Done)**: Smart Flood-Fill Bucket (Reference Layer + 1px Color Trapping), Eyedropper, Vertical Symmetry, Exposure Holds (`1s–4s`), & Atomic `.pas` Autosave.
+  - **Phase 6 (Done)**: Freehand 2D Lasso Selection & Interactive Move/Scale/Rotate Gizmo + Shift-and-Trace Virtual Light Table.
+  - **Phase 7 (Done)**: Zero-Bloat Hardware-Accelerated 1080p H.264 `.mp4` Video Exporter (`MediaCodec`).
+  - **Phase 8 (Done)**: 2D Camera Keyframe & Smoothstep Tweening Engine (`🎥 2D Cam`), 2D Vector Intersection Stroke Cutter (`✂ Trim`), & Live UX Comfort Tuner (`🎛 Tune UX`).
+  - **Phase 9 (Next)**: Audio Track Import, Waveform Timeline Scrubbing (for 2D Lip-Sync), & Flipbook Quick-Roll Wheel.
+  - **Phase 10 (Next)**: Sprite Sheet PNG/JSON Atlas Exporter (for 2D Game Engines) & Floating Reference Image Pinboard.
 - **What Exists Right Now**:
-  - `.github/workflows/build-apk.yml`: Cloud CI/CD building both `Debug` and R8-optimized `Release` APKs on every push to `main`.
-  - `core/config/StudioConfig.kt`: Central tuning constants for stage resolution, zoom limits, stabilizer strength, onion skin colors, and undo caps.
+  - `.github/workflows/build-apk.yml` & `.vscode/settings.json`: Cloud CI/CD with zero offline editor schema warnings.
+  - `core/config/StudioConfig.kt` & `StudioPreferences.kt`: Central tuning constants + live user-tunable UX preferences (Stylus-Only Palm Rejection, Potato Phone Turbo Mode, 2-Finger Tap Undo toggle, 2D Composition Grid).
   - `core/diagnostics/CrashReporter.kt`: In-App Crash Catcher & Live Diagnostics dialog with one-tap "Copy Report" to clipboard.
   - `core/profiler/PerformanceHud.kt`: Zero-allocation real-time FPS, Heap RAM, Frame index, and Zoom % HUD overlay.
   - `core/storage/CrashSafeAutosave.kt`: Atomic binary `.pas` background autosave & crash recovery (`autosave.pas.tmp` -> `autosave.pas`).
-  - `model/Stroke.kt`: Primitive `FloatArray`-backed 2D stroke model with bounding box tracking and in-place 2D `Matrix` affine transformation (`applyTransform`).
+  - `model/Stroke.kt`: Primitive `FloatArray`-backed 2D stroke model with bounding box tracking and in-place 2D `Matrix` affine transformation.
   - `model/AnimationLayer.kt`: Multi-layer model (`LayerCel`, `AnimationLayer`, `LayerBlendMode` for Normal, Multiply, Screen, Add, Overlay, plus Reference Layer, Alpha Lock, Opacity, and Visibility).
   - `model/AnimationFrame.kt`: Multi-layer frame holding `LayerCel`s per layer and `exposureHold` (1s, 2s, 3s, 4s timing).
   - `model/AnimationProject.kt`: Stage container managing multi-layer stack, reference layer selection, exposure holds, FPS, and onion skinning.
   - `engine/brush/InputStabilizer.kt`: Real-time Lazy-Mouse / Streamline exponential smoothing filter for shaky budget touchscreens.
+  - `engine/camera/Camera2DController.kt`: 2D Camera Keyframe & Smoothstep Cubic Ease-In-Out Tweening engine (Pan, Zoom/Truck-In, Rotate).
   - `engine/canvas/ViewportController.kt`: Pre-allocated forward/inverse `Matrix` camera controller for Pan, Pinch-Zoom (15%–3200%), Two-Finger Rotate, and Horizontal Mirror Flip.
   - `engine/onion/OnionSkinRenderer.kt`: Multi-frame & multi-layer tinted Onion Skin renderer + **Shift-and-Trace (Virtual Light Table)** offset support.
-  - `engine/tools/StudioToolType.kt`: Pluggable tool enum (`BRUSH`, `ERASER`, `LASSO`, `FILL_BUCKET`, `EYEDROPPER`, `SHIFT_TRACE`, `HAND_PAN`).
+  - `engine/tools/StudioToolType.kt`: Pluggable tool enum (`BRUSH`, `ERASER`, `VECTOR_CUTTER`, `LASSO`, `FILL_BUCKET`, `EYEDROPPER`, `CAMERA_2D`, `SHIFT_TRACE`, `HAND_PAN`).
   - `engine/tools/LassoTransformController.kt`: Freehand 2D Lasso selection polygon & interactive Move/Scale/Rotate bounding box gizmo.
+  - `engine/tools/VectorStrokeCutter.kt`: 2D Vector Stroke Intersection Cutter (`✂ Trim`) for instant line-art corner cleanup.
   - `engine/tools/SmartFloodFillEngine.kt`: Zero-object-allocation Scanline Flood Fill engine with Reference Layer boundary detection and 1px under-line color trapping.
   - `export/HardwareVideoExporter.kt`: Zero-bloat 1080p H.264 `.mp4` hardware video exporter using Android's native `MediaCodec` and `MediaMuxer`.
-  - `engine/AnimationCanvasView.kt`: Full stage engine integrating multi-layer compositing, Lasso Transform, Shift-and-Trace Light Table, Vertical Symmetry Mirror drawing, and Exposure Hold playback loop.
-  - `ui/workspace/StudioWorkspaceLayout.kt`: Programmatic native Studio UI with Top Action Bar (`🎬 Export MP4`, `🗂 Layers`, `🦋 Sym`, etc.), Left/Right-Handed Tool Dock (`✏ Pen`, `⌫ Erase`, `⬠ Lasso`, `🪣 Fill`, `💧 Pick`, `💡 Shift`, `✥ Pan`), and Bottom Timeline Scrubber.
+  - `engine/AnimationCanvasView.kt`: Full stage engine integrating multi-layer compositing, 2D Camera Keyframes, Vector Cutter, Lasso Transform, Shift-and-Trace Light Table, Vertical Symmetry Mirror drawing, and Exposure Hold playback loop.
+  - `ui/workspace/StudioWorkspaceLayout.kt`: Programmatic native Studio UI with Top Action Bar (`🎥 2D Cam`, `🎛 Tune UX`, `🎬 Export MP4`, `🗂 Layers`, `🦋 Sym`, etc.), Left/Right-Handed Tool Dock (`✏ Pen`, `⌫ Erase`, `✂ Trim`, `⬠ Lasso`, `🪣 Fill`, `💧 Pick`, `🎥 Cam`, `💡 Shift`, `✥ Pan`), and Bottom Timeline Scrubber.
   - `MainActivity.kt`: Native `Activity` mounting `StudioWorkspaceLayout` with 90Hz/120Hz display refresh rate negotiation and `CrashReporter`.
 
 ---
@@ -49,7 +60,8 @@ To ensure we can add 100+ pro features without spaghetti code, all code under `a
 com.animationapp/
 ├── MainActivity.kt                        # App entry point, lifecycle, memory trim, crash recovery
 ├── core/
-│   ├── config/StudioConfig.kt             # Central tuning constants (max undo, tile sizes, RAM thresholds)
+│   ├── config/StudioConfig.kt             # Central compile-time tuning constants
+│   ├── config/StudioPreferences.kt        # Live in-app UX comfort tuner (Palm Rejection, Turbo Mode, Grid)
 │   ├── diagnostics/CrashReporter.kt       # In-app crash catcher & live log viewer with clipboard copy
 │   ├── profiler/PerformanceHud.kt         # FPS, frame-time (ms), RAM heap, frame & zoom counter
 │   └── storage/CrashSafeAutosave.kt       # Background atomic binary .pas autosave & restoration
@@ -60,16 +72,18 @@ com.animationapp/
 │   └── Stroke.kt                          # Packed FloatArray coordinates + in-place 2D Matrix transform
 ├── engine/
 │   ├── AnimationCanvasView.kt             # Hardware stage canvas, multi-layer compositor, touch router
+│   ├── camera/Camera2DController.kt       # 2D Camera Keyframe Pan/Zoom/Rotate & Smoothstep Tweening
 │   ├── canvas/ViewportController.kt       # Viewport matrix (pan/zoom/rotate/mirror), inverse mapping
 │   ├── brush/InputStabilizer.kt           # Real-time Lazy-Mouse / Streamline stroke smoothing
-│   ├── tools/StudioToolType.kt            # Pluggable Tool types (Pen, Eraser, Lasso, Fill, Pick, Shift, Pan)
+│   ├── tools/StudioToolType.kt            # Pluggable Tool types (Pen, Erase, Trim, Lasso, Fill, Pick, Cam, Shift, Pan)
 │   ├── tools/LassoTransformController.kt  # Freehand 2D Lasso selection & Move/Scale/Rotate gizmo
+│   ├── tools/VectorStrokeCutter.kt        # 2D Vector intersection line cutter (Trim tool)
 │   ├── tools/SmartFloodFillEngine.kt      # Scanline Flood Fill with Reference Layer & 1px color trapping
 │   └── onion/OnionSkinRenderer.kt         # Multi-frame tinted Onion Skinning + Shift-and-Trace Light Table
 ├── export/
 │   └── HardwareVideoExporter.kt           # Hardware-accelerated 1080p H.264 MP4 exporter (MediaCodec)
 └── ui/
-    └── workspace/StudioWorkspaceLayout.kt # Layer manager, tool dock, timeline scrubber, MP4 export
+    └── workspace/StudioWorkspaceLayout.kt # Layer manager, 2D Cam dialog, UX Tuner, tool dock, timeline
 ```
 
 ---
@@ -77,9 +91,9 @@ com.animationapp/
 ## 4. Exhaustive Master List of Features (Including Easy-to-Forget Pro Details)
 
 ### Category 1: Pro Studio UX & Ergonomics (Often Forgotten!)
-1. **Palm Rejection & Stylus-Only Mode**: Ignore accidental palm/wrist touches when using a stylus or drawing with one finger while resting hand.
+1. **Palm Rejection & Stylus-Only Mode** *(Implemented)*: Toggleable inside `🎛 Tune UX` (`StudioPreferences.stylusOnlyPalmRejection`).
 2. **Multi-Touch Gesture Shortcuts** *(Implemented)*:
-   - Two-finger tap = Instant **Undo**.
+   - Two-finger tap = Instant **Undo** (can be toggled in `🎛 Tune UX`).
    - Three-finger tap = Instant **Redo**.
    - Two-finger pinch/drag/twist = Smooth **Zoom, Pan, and Canvas Rotation**.
    - Canvas **Eyedropper (`💧 Pick`)** *(Implemented)*.
@@ -90,16 +104,16 @@ com.animationapp/
 
 ### Category 2: Crash-Proofing, Diagnostics & Low-End Survival
 7. **Atomic Stroke-by-Stroke Autosave & Crash Recovery** *(Implemented)*: `CrashSafeAutosave.kt` writes binary `.pas.tmp` and renames atomically after every stroke/edit.
-8. **In-App Debug Console & Diagnostics Overlay** *(Implemented)*: `CrashReporter.kt` catches uncaught exceptions and provides a live `🐞 Logs` viewer with 1-tap clipboard copy.
-9. **Adaptive Low-Spec Mode ("Potato Phone Turbo Mode")**: Switches inactive layers to 16-bit color (`RGB_565`) and streams offscreen frames to disk.
+8. **In-App Debug Console & Live UX Tuner** *(Implemented)*: `CrashReporter.kt` (`🐞 Logs`) + `StudioPreferences.kt` (`🎛 Tune UX`) let the user fix UX feel issues on the fly and copy full diagnostic + preference snapshots in 1 tap.
+9. **Adaptive Low-Spec Mode ("Potato Phone Turbo Mode")** *(Implemented)*: Toggleable inside `🎛 Tune UX` to disable costly anti-aliasing passes for maximum FPS on weak phones.
 
 ### Category 3: Drawing, Inking & Coloring Engine
 10. **Pluggable Brush Studio** *(Implemented)*: Adjustable Brush Size (1–120px), Eraser Size (4–180px), Color Swatches, Active Color Indicator.
 11. **Input Stabilizer (Streamline / Lazy-Mouse)** *(Implemented)*: Adjustable 0–90% smoothing slider in `⚙ Brush` dialog.
 12. **Velocity & Pressure Simulation**: Simulate pen pressure based on finger speed or touch contact area.
-13. **Vector + Raster Hybrid Layers** *(Implemented)*: Each `LayerCel` combines vector `Stroke` lists with raster `fillBitmap` overlays.
+13. **Vector + Raster Hybrid Layers & Vector Stroke Cutter** *(Implemented)*: Each `LayerCel` combines vector `Stroke` lists with raster `fillBitmap` overlays, plus `VectorStrokeCutter.kt` (`✂ Trim`) to cut intersecting strokes cleanly.
 14. **Smart Fill Bucket** *(Implemented)*: `SmartFloodFillEngine.kt` with **Reference Layer Fill** and **1px Under-Line Color Trapping**.
-15. **Symmetry & Perspective Guides** *(Vertical Mirror Symmetry Implemented)*: `🦋 Sym` toggle for real-time symmetrical character drawing.
+15. **Symmetry & 2D Composition Grid Guides** *(Implemented)*: `🦋 Sym` vertical mirror drawing + 2D Alignment Grid in `🎛 Tune UX`.
 16. **Lasso, Transform & Bounding Box Gizmo** *(Implemented)*: `LassoTransformController.kt` (`⬠ Lasso`) for freehand selection, Move, Scale, and Rotate.
 
 ### Category 4: Pro Animation Timeline & Cel Workflow
@@ -109,10 +123,10 @@ com.animationapp/
 20. **Flipbook Scrubbing Wheel ("Rolling" the frames)**: Rapidly flip between the last 3 drawings.
 21. **Multi-Layer Stack, Reference Layer & Alpha Lock** *(Implemented)*: `🗂 Layers` dialog with Add/Delete layer, Visibility (`👁`), Reference Layer (`⭐Ref`), Alpha Lock (`🔒α`), and Opacity slider.
 22. **Blend Modes** *(Implemented)*: Normal, Multiply, Screen, Add (Glow), Overlay.
-23. **2D Camera Layer**: Dedicated 2D camera frame with pan, zoom, and rotation keyframes.
+23. **2D Camera Layer & Keyframe Tweening** *(Implemented)*: `Camera2DController.kt` (`🎥 2D Cam` / `🎥 Cam`) with Pan, Truck-In/Out Zoom, and Smoothstep Cubic Easing across frames.
 
 ### Category 5: Tweening, Rigging & Procedural FX
-24. **Keyframe Interpolation & Graph Editor**: Animate 2D layer position, scale, rotation, opacity with Cubic Bézier curves.
+24. **Keyframe Interpolation & Graph Editor**: Smoothstep easing implemented for 2D Camera; custom layer tweening next.
 25. **2D Cut-Out Skeletal Rigging (FK / IK Bones)**: 2D bone hierarchies with Inverse Kinematics.
 26. **Motion Paths**: Visible trajectory arcs on canvas.
 27. **Non-Destructive VFX Modifiers**: Blur, Glow/Bloom, Shadow, Line Boil.
@@ -126,15 +140,13 @@ com.animationapp/
 ---
 
 ## 5. Change Log & Session History
-- **2026-10-18 (Session 1)**:
+- **2026-10-18 (Session 1 - Phase 1)**:
   - Set up Pure Native Kotlin + GitHub Actions CI/CD (Zero local Android Studio/SDK bloat).
-  - Verified GitHub Actions cloud APK builds (`conclusion: success`).
   - Created `AGENT_CONTEXT.md` as the permanent brain of the project.
 - **2026-10-18 (Session 2 - Phases 2, 3, 4 & 5)**:
-  - Implemented modular package architecture, `CrashReporter.kt`, `ViewportController.kt`, `InputStabilizer.kt`, `OnionSkinRenderer.kt`, and `StudioWorkspaceLayout.kt`.
-  - Built Multi-Layer compositing engine (`AnimationLayer.kt`, `LayerCel`, `LayerBlendMode`), `SmartFloodFillEngine.kt` (Reference Layer + 1px under-line color trapping), Eyedropper, Vertical Symmetry, Exposure Holds (`1s/2s/3s/4s`), and `CrashSafeAutosave.kt`.
-- **2026-10-19 (Session 3 - Phases 6 & 7)**:
-  - Built `LassoTransformController.kt` (`⬠ Lasso`) for freehand 2D stroke selection and interactive Move, Scale, and Rotate bounding box gizmo.
-  - Added **Shift-and-Trace Virtual Light Table** (`💡 Shift`) to `OnionSkinRenderer.kt` so animators can slide ghost onion skins to trace in-betweens and snap back via `⛶ Fit`.
-  - Built `HardwareVideoExporter.kt` (`🎬 Export MP4`) using Android's native `MediaCodec` + `MediaMuxer` for zero-bloat 1080p H.264 `.mp4` video export to Gallery.
+  - Built modular package architecture, `CrashReporter.kt`, `ViewportController.kt`, `InputStabilizer.kt`, `OnionSkinRenderer.kt`, `StudioWorkspaceLayout.kt`, Multi-Layer compositor (`AnimationLayer.kt`), `SmartFloodFillEngine.kt`, Eyedropper, Vertical Symmetry, Exposure Holds, and `CrashSafeAutosave.kt`.
+- **2026-10-19 (Session 3 - Phases 6, 7 & 8)**:
+  - Built `LassoTransformController.kt` (`⬠ Lasso`), Shift-and-Trace Light Table (`💡 Shift`), and `HardwareVideoExporter.kt` (`🎬 Export MP4`).
+  - Fixed false-positive VS Code GitHub Actions extension warning on `actions/checkout@v4` in `.github/workflows/build-apk.yml` + `.vscode/settings.json`.
+  - Built `Camera2DController.kt` (`🎥 2D Cam`), `VectorStrokeCutter.kt` (`✂ Trim`), and `StudioPreferences.kt` (`🎛 Tune UX` for live UX comfort tuning, Palm Rejection, Potato Phone Turbo Mode, and 2D Composition Grid).
 

@@ -13,21 +13,24 @@ jobs:
 
     steps:
       - name: Checkout Source Code
-        uses: actions/checkout@v4
+        run: |
+          git init .
+          git remote add origin "https://github.com/${GITHUB_repository:-DevMarvellous/animation}.git" || true
+          git fetch --depth=1 origin "${GITHUB_SHA}"
+          git checkout -f FETCH_HEAD
 
-      - name: Set up JDK 17 (Temurin)
-        uses: actions/setup-java@v4
-        with:
-          java-version: '17'
-          distribution: 'temurin'
-
-      - name: Setup Gradle with Cloud Caching
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.10.2'
+      - name: Install Gradle 8.10.2 (Cached)
+        run: |
+          GRADLE_VERSION=8.10.2
+          if [ ! -d "$HOME/.gradle-dist/gradle-${GRADLE_VERSION}" ]; then
+            mkdir -p "$HOME/.gradle-dist"
+            curl -sL "https://services.gradle.org/distributions/gradle-${GRADLE_VERSION}-bin.zip" -o /tmp/gradle.zip
+            unzip -q /tmp/gradle.zip -d "$HOME/.gradle-dist"
+          fi
+          echo "$HOME/.gradle-dist/gradle-${GRADLE_VERSION}/bin" >> $GITHUB_PATH
 
       - name: Build Debug & R8-Optimized Release APKs
-        run: gradle assembleDebug assembleRelease --stacktrace
+        run: gradle assembleDebug assembleRelease --stacktrace --no-daemon
 
       - name: Upload Ready-to-Install Release APK (R8 Optimized)
         uses: actions/upload-artifact@v4
@@ -42,4 +45,3 @@ jobs:
           name: ProAnimationStudio-Debug-APK
           path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
-

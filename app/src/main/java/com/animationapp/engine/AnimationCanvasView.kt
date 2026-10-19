@@ -12,15 +12,18 @@ import android.os.SystemClock
 import android.view.MotionEvent
 import android.view.View
 import com.animationapp.core.config.StudioConfig
+import com.animationapp.core.config.StudioPreferences
 import com.animationapp.core.diagnostics.CrashReporter
 import com.animationapp.core.profiler.PerformanceHud
 import com.animationapp.core.storage.CrashSafeAutosave
 import com.animationapp.engine.brush.InputStabilizer
+import com.animationapp.engine.camera.Camera2DController
 import com.animationapp.engine.canvas.ViewportController
 import com.animationapp.engine.onion.OnionSkinRenderer
 import com.animationapp.engine.tools.LassoTransformController
 import com.animationapp.engine.tools.SmartFloodFillEngine
 import com.animationapp.engine.tools.StudioToolType
+import com.animationapp.engine.tools.VectorStrokeCutter
 import com.animationapp.model.AnimationProject
 import com.animationapp.model.LayerCel
 import com.animationapp.model.Stroke
@@ -28,17 +31,16 @@ import kotlin.math.atan2
 import kotlin.math.hypot
 
 /**
- * Hardware-accelerated, zero-allocation Multi-Layer 2D Animation Stage & Viewport Engine.
+ * Hardware-accelerated, zero-allocation Multi-Layer 2D Animation Stage & Viewport Engine (Phase 8).
  *
  * Capabilities:
  * - Multi-Layer Compositing (Visibility, Opacity, Blend Modes, Alpha Lock, Reference Layer Fill).
+ * - 2D Camera Keyframe & Smoothstep Tweening (`CAMERA_2D`): Pan & Truck-In/Out across frames.
+ * - Vector Intersection Stroke Cutter (`VECTOR_CUTTER` / `✂ Trim`): Swipe across strokes to cut cleanly.
  * - Freehand 2D Lasso Selection & Transform Gizmo (`LASSO`): Move, Scale, and Rotate 2D strokes in place.
- * - Shift-and-Trace Virtual Light Table (`SHIFT_TRACE`): Temporarily slide ghost onion skins to align in-betweens.
- * - Smart Scanline Flood-Fill Bucket (`FILL_BUCKET`) with Reference Layer boundary detection & 1px under-line color trapping.
- * - Instant Canvas Eyedropper (`EYEDROPPER`) color sampling.
- * - Symmetry Mirror Drawing Guide (`isVerticalSymmetryEnabled`).
- * - Exposure Hold playback (1s, 2s, 3s, 4s timing).
- * - Atomic Background Autosave (`CrashSafeAutosave`) after every stroke/action.
+ * - Shift-and-Trace Virtual Light Table (`SHIFT_TRACE`): Temporarily slide ghost onion skins.
+ * - Smart Scanline Flood-Fill Bucket (`FILL_BUCKET`) with Reference Layer & 1px under-line color trapping.
+ * - Stylus-Only Palm Rejection & Low-Spec Turbo Mode (`StudioPreferences`).
  */
 class AnimationCanvasView(
     context: Context,
@@ -52,6 +54,7 @@ class AnimationCanvasView(
     val stabilizer = InputStabilizer()
     val onionSkinRenderer = OnionSkinRenderer()
     val lassoController = LassoTransformController()
+    val camera2D = Camera2DController()
     val performanceHud = PerformanceHud()
 
     // Active Tool & Brush Settings
@@ -76,9 +79,10 @@ class AnimationCanvasView(
     private var lastPlaybackStepTimeMs = 0L
     private var currentHoldTick = 0
 
-    // Shift-and-Trace drag tracking
-    private var lastShiftDragX = 0f
-    private var lastShiftDragY = 0f
+    // Tool drag tracking
+    private var lastToolDragX = 0f
+    private var lastToolDragY = 0f
+    private val camEvalScratch = FloatArray(4)
 
     // Offscreen Composite Bitmap Cache & Scratch Layer Bitmap
     private var compositeCacheBitmap: Bitmap? = null
@@ -102,6 +106,11 @@ class AnimationCanvasView(
         style = Paint.Style.STROKE
         strokeWidth = 2.5f
     }
+    private val gridGuidePaint = Paint().apply {
+        color = Color.argb(45, 90, 110, 145)
+        style = Paint.Style.STROKE
+        strokeWidth = 1.5f
+    }
     private val strokePaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.DITHER_FLAG).apply {
         style = Paint.Style.STROKE
         strokeJoin = Paint.Join.ROUND
@@ -117,7 +126,7 @@ class AnimationCanvasView(
         project.stageHeight.toFloat()
     )
 
-    // Active stroke(s) in progress (primary + optional symmetry mirror stroke)
+    // Active stroke(s) in progress
     private var activeStroke: Stroke? = null
     private var activeMirrorStroke: Stroke? = null
 
@@ -132,6 +141,8 @@ class AnimationCanvasView(
     private var prevAngleDeg = 0f
 
     init {
+        StudioPreferences.load(context)
+        stabilizer.strength = StudioPreferences.defaultStabilizerPercent / 100f
         ensureCachesAllocated()
         CrashSafeAutosave.loadSavedProjectIfPresent(context, project)
     }
@@ -166,6 +177,7 @@ class AnimationCanvasView(
         val scratchCanvas = scratchLayerCanvas ?: return
         val scratchBmp = scratchLayerBitmap ?: return
 
+        strokePaint.isAntiAlias = !StudioPreferences.lowSpecTurboMode
         compCanvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
 
         val layers = project.layers
@@ -223,7 +235,7 @@ class AnimationCanvasView(
     }
 
     override fun onDraw(canvas: Canvas) {
-        // 1. Advance timeline playback if playing (respecting per-frame Exposure Holds 1s/2s/3s)
+        // 1. Advance timeline playback if playing (respecting per-frame Exposure Holds)
         if (isPlaying) {
             val now = SystemClock.uptimeMillis()
             val tickDurationMs = (1000L / project.fps.coerceAtLeast(1))
@@ -253,12 +265,28 @@ class AnimationCanvasView(
 
         canvas.clipRect(stageRect)
 
-        // 5. Draw multi-frame tinted Onion Skins (when paused)
+        // Optional: If playing or previewing through 2D Camera lens, apply 2D Camera Keyframe Matrix
+        if ((isPlaying || camera2D.isCameraViewActive) && camera2D.keyframes.isNotEmpty()) {
+            val camMatrix = camera2D.buildCameraLensMatrix(
+                frameIndex = project.currentFrameIndex,
+                stageWidth = project.stageWidth,
+                stageHeight = project.stageHeight,
+                evalScratch = camEvalScratch
+            )
+            canvas.concat(camMatrix)
+        }
+
+        // 5. Draw 2D Grid Overlay if enabled in StudioPreferences
+        if (StudioPreferences.showGridOverlay && !isPlaying) {
+            draw2DCompositionGrid(canvas)
+        }
+
+        // 6. Draw multi-frame tinted Onion Skins (when paused and not blocked by Low-Spec Turbo)
         if (!isPlaying && project.isOnionSkinEnabled) {
             onionSkinRenderer.drawOnionSkins(canvas, project)
         }
 
-        // 6. Draw cached multi-layer composite bitmap in O(1)
+        // 7. Draw cached multi-layer composite bitmap in O(1)
         rebuildCompositeCacheIfNeeded()
         compositeCacheBitmap?.let { bmp ->
             if (!bmp.isRecycled) {
@@ -266,7 +294,7 @@ class AnimationCanvasView(
             }
         }
 
-        // 7. Draw active stroke(s) currently being drawn
+        // 8. Draw active stroke(s) currently being drawn
         activeStroke?.let { stroke ->
             previewActiveStroke(canvas, stroke)
         }
@@ -274,12 +302,25 @@ class AnimationCanvasView(
             previewActiveStroke(canvas, mirrorStroke)
         }
 
-        // 8. Draw Freehand Lasso & Transform Bounding Box Gizmo if active
+        // 9. Draw Freehand Lasso & Transform Bounding Box Gizmo if active
         if (activeTool == StudioToolType.LASSO) {
             lassoController.drawOverlay(canvas)
         }
 
-        // 9. Draw Vertical Symmetry Guide line if enabled
+        // 10. Draw 2D Camera Viewfinder frame when editing in 2D Camera mode
+        if (!isPlaying && !camera2D.isCameraViewActive &&
+            (activeTool == StudioToolType.CAMERA_2D || camera2D.keyframes.isNotEmpty())
+        ) {
+            camera2D.drawCameraViewfinder(
+                canvas = canvas,
+                frameIndex = project.currentFrameIndex,
+                stageWidth = project.stageWidth,
+                stageHeight = project.stageHeight,
+                evalScratch = camEvalScratch
+            )
+        }
+
+        // 11. Draw Vertical Symmetry Guide line if enabled
         if (isVerticalSymmetryEnabled) {
             val centerX = project.stageWidth * 0.5f
             canvas.drawLine(centerX, 0f, centerX, project.stageHeight.toFloat(), symmetryGuidePaint)
@@ -287,7 +328,7 @@ class AnimationCanvasView(
 
         canvas.restore()
 
-        // 10. Draw live Performance HUD in top-left
+        // 12. Draw live Performance HUD in top-left
         performanceHud.recordFrameAndDraw(
             canvas = canvas,
             x = 16f,
@@ -299,6 +340,20 @@ class AnimationCanvasView(
 
         if (isPlaying) {
             postInvalidateOnAnimation()
+        }
+    }
+
+    private fun draw2DCompositionGrid(canvas: Canvas) {
+        val step = StudioPreferences.gridSpacingPx.coerceAtLeast(40)
+        var x = step
+        while (x < project.stageWidth) {
+            canvas.drawLine(x.toFloat(), 0f, x.toFloat(), project.stageHeight.toFloat(), gridGuidePaint)
+            x += step
+        }
+        var y = step
+        while (y < project.stageHeight) {
+            canvas.drawLine(0f, y.toFloat(), project.stageWidth.toFloat(), y.toFloat(), gridGuidePaint)
+            y += step
         }
     }
 
@@ -337,6 +392,14 @@ class AnimationCanvasView(
             return true
         }
 
+        // Stylus-Only Palm Rejection Check: if enabled, ignore single-finger capacitive touches unless using a Stylus
+        if (StudioPreferences.stylusOnlyPalmRejection) {
+            val toolType = event.getToolType(0)
+            if (toolType != MotionEvent.TOOL_TYPE_STYLUS && toolType != MotionEvent.TOOL_TYPE_ERASER) {
+                return true
+            }
+        }
+
         if (isPlaying) {
             pausePlayback()
         }
@@ -344,17 +407,55 @@ class AnimationCanvasView(
         val stageX = viewport.screenToStageX(event.x, event.y)
         val stageY = viewport.screenToStageY(event.x, event.y)
 
-        // Handle Shift-and-Trace Virtual Light Table Tool (slides ghost onion skins)
+        // Handle 2D Camera Keyframe Tool (Drag to Pan 2D Camera on current frame)
+        if (activeTool == StudioToolType.CAMERA_2D) {
+            when (action) {
+                MotionEvent.ACTION_DOWN -> {
+                    lastToolDragX = stageX
+                    lastToolDragY = stageY
+                    if (!camera2D.hasKeyframeAt(project.currentFrameIndex)) {
+                        camera2D.evaluateAtFrame(project.currentFrameIndex, camEvalScratch)
+                        camera2D.setOrUpdateKeyframe(
+                            project.currentFrameIndex,
+                            camEvalScratch[0],
+                            camEvalScratch[1],
+                            camEvalScratch[2],
+                            camEvalScratch[3]
+                        )
+                    }
+                    onStateChanged?.invoke()
+                    invalidate()
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val dx = stageX - lastToolDragX
+                    val dy = stageY - lastToolDragY
+                    camera2D.evaluateAtFrame(project.currentFrameIndex, camEvalScratch)
+                    camera2D.setOrUpdateKeyframe(
+                        project.currentFrameIndex,
+                        camEvalScratch[0] + dx,
+                        camEvalScratch[1] + dy,
+                        camEvalScratch[2],
+                        camEvalScratch[3]
+                    )
+                    lastToolDragX = stageX
+                    lastToolDragY = stageY
+                    invalidate()
+                }
+            }
+            return true
+        }
+
+        // Handle Shift-and-Trace Virtual Light Table Tool
         if (activeTool == StudioToolType.SHIFT_TRACE) {
             when (action) {
                 MotionEvent.ACTION_DOWN -> {
-                    lastShiftDragX = stageX
-                    lastShiftDragY = stageY
+                    lastToolDragX = stageX
+                    lastToolDragY = stageY
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    onionSkinRenderer.addShiftOffset(stageX - lastShiftDragX, stageY - lastShiftDragY)
-                    lastShiftDragX = stageX
-                    lastShiftDragY = stageY
+                    onionSkinRenderer.addShiftOffset(stageX - lastToolDragX, stageY - lastToolDragY)
+                    lastToolDragX = stageX
+                    lastToolDragY = stageY
                     onStateChanged?.invoke()
                     invalidate()
                 }
@@ -365,6 +466,38 @@ class AnimationCanvasView(
         // Block editing if active layer is locked or hidden
         val currentLayer = project.activeLayer
         if (currentLayer.isLocked || !currentLayer.isVisible) {
+            return true
+        }
+
+        // Handle 2D Vector Stroke Intersection Cutter (`✂ Trim`)
+        if (activeTool == StudioToolType.VECTOR_CUTTER) {
+            when (action) {
+                MotionEvent.ACTION_DOWN -> {
+                    lastToolDragX = stageX
+                    lastToolDragY = stageY
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val cut = VectorStrokeCutter.cutIntersectingStrokes(
+                        strokes = project.activeCel.strokes,
+                        x0 = lastToolDragX,
+                        y0 = lastToolDragY,
+                        x1 = stageX,
+                        y1 = stageY,
+                        hitRadiusPx = 14f
+                    )
+                    lastToolDragX = stageX
+                    lastToolDragY = stageY
+                    if (cut) {
+                        project.currentFrame.isCacheDirty = true
+                        invalidate()
+                    }
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    triggerAutosave()
+                    onStateChanged?.invoke()
+                    invalidate()
+                }
+            }
             return true
         }
 
@@ -598,7 +731,8 @@ class AnimationCanvasView(
 
     private fun finishMultiTouchGesture() {
         val duration = SystemClock.uptimeMillis() - gestureDownTimeMs
-        if (duration <= StudioConfig.TWO_FINGER_TAP_MAX_DURATION_MS &&
+        if (StudioPreferences.enableMultiTouchTapUndoRedo &&
+            duration <= StudioPreferences.twoFingerTapMaxMs &&
             gestureMaxMoveDistancePx <= StudioConfig.TWO_FINGER_TAP_MAX_SLOP_PX
         ) {
             if (maxPointersInGesture == 2) {
