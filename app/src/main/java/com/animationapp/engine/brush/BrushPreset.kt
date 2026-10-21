@@ -45,3 +45,4 @@ enum class BrushPreset(
         paint.maskFilter = cachedMaskFilter
     }
 }
+

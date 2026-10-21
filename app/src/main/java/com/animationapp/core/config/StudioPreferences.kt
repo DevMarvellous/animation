@@ -26,8 +26,9 @@ object StudioPreferences {
     var showGridOverlay: Boolean = false
     var gridSpacingPx: Int = 120
 
-    // 3. Brush & Feeling
+    // 3. Brush, Coloring & Feeling
     var defaultStabilizerPercent: Int = 45
+    var fillGapClosingRadiusPx: Int = 2 // Seals small 2px–8px line-art gaps during Paint Bucket fill
 
     fun load(context: Context) {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -39,6 +40,7 @@ object StudioPreferences {
         showGridOverlay = prefs.getBoolean("showGridOverlay", false)
         gridSpacingPx = prefs.getInt("gridSpacingPx", 120)
         defaultStabilizerPercent = prefs.getInt("defaultStabilizerPercent", 45)
+        fillGapClosingRadiusPx = prefs.getInt("fillGapClosingRadiusPx", 2)
     }
 
     fun save(context: Context) {
@@ -51,6 +53,7 @@ object StudioPreferences {
             putBoolean("showGridOverlay", showGridOverlay)
             putInt("gridSpacingPx", gridSpacingPx)
             putInt("defaultStabilizerPercent", defaultStabilizerPercent)
+            putInt("fillGapClosingRadiusPx", fillGapClosingRadiusPx)
             apply()
         }
     }
@@ -58,7 +61,7 @@ object StudioPreferences {
     fun toDiagnosticSummary(): String {
         return "Prefs[StylusOnly=$stylusOnlyPalmRejection, VelPressure=$simulatedVelocityPressure, " +
             "TapUndo=$enableMultiTouchTapUndoRedo(${twoFingerTapMaxMs}ms), " +
-            "LowSpecTurbo=$lowSpecTurboMode, Grid=$showGridOverlay]"
+            "LowSpecTurbo=$lowSpecTurboMode, Grid=$showGridOverlay, GapClose=${fillGapClosingRadiusPx}px]"
     }
 }
 

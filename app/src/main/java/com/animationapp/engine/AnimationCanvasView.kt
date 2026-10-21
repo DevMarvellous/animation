@@ -23,6 +23,7 @@ import com.animationapp.engine.camera.Camera2DController
 import com.animationapp.engine.canvas.ViewportController
 import com.animationapp.engine.onion.OnionSkinRenderer
 import com.animationapp.engine.tools.LassoTransformController
+import com.animationapp.engine.tools.ShapeAndPerspectiveController
 import com.animationapp.engine.tools.SmartFloodFillEngine
 import com.animationapp.engine.tools.StudioToolType
 import com.animationapp.engine.tools.VectorStrokeCutter
@@ -33,7 +34,7 @@ import kotlin.math.atan2
 import kotlin.math.hypot
 
 /**
- * Hardware-accelerated, zero-allocation Multi-Layer 2D Animation Stage & Viewport Engine (Phases 9, 10 & 11).
+ * Hardware-accelerated, zero-allocation Multi-Layer 2D Animation Stage & Viewport Engine (Phases 12–15).
  */
 class AnimationCanvasView(
     context: Context,
@@ -47,6 +48,7 @@ class AnimationCanvasView(
     val stabilizer = InputStabilizer()
     val onionSkinRenderer = OnionSkinRenderer()
     val lassoController = LassoTransformController()
+    val shapeController = ShapeAndPerspectiveController(project.stageWidth, project.stageHeight)
     val camera2D = Camera2DController()
     val performanceHud = PerformanceHud()
 
@@ -293,12 +295,22 @@ class AnimationCanvasView(
             }
         }
 
-        // 8. Draw active stroke(s) currently being drawn
+        // 8. Draw active stroke(s) or Geometric 2D Shape preview currently being drawn
         activeStroke?.let { stroke ->
             previewActiveStroke(canvas, stroke)
         }
         activeMirrorStroke?.let { mirrorStroke ->
             previewActiveStroke(canvas, mirrorStroke)
+        }
+        if (activeTool == StudioToolType.SHAPE_GUIDE) {
+            shapeController.buildPreviewStroke(brushColor, brushSizePx, activeBrushPreset)?.let { shapePreview ->
+                previewActiveStroke(canvas, shapePreview)
+            }
+        }
+
+        // 8b. Draw 1/2-Point Perspective Horizon & Vanishing Point Rulers if enabled
+        if (!isPlaying && (shapeController.showPerspectiveRuler || activeTool == StudioToolType.SHAPE_GUIDE)) {
+            shapeController.drawPerspectiveGuides(canvas, project.stageWidth, project.stageHeight)
         }
 
         // 9. Draw Freehand Lasso & Transform Bounding Box Gizmo if active
@@ -545,6 +557,37 @@ class AnimationCanvasView(
             return true
         }
 
+        // Handle 2D Geometric Shape & Perspective Vanishing-Point Ruler Tool (`📐 Shapes`)
+        if (activeTool == StudioToolType.SHAPE_GUIDE) {
+            when (action) {
+                MotionEvent.ACTION_DOWN -> {
+                    shapeController.onTouchDown(stageX, stageY)
+                    invalidate()
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    shapeController.onTouchMove(stageX, stageY)
+                    invalidate()
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    val finishedShape = shapeController.onTouchUp(
+                        stageX = stageX,
+                        stageY = stageY,
+                        color = brushColor,
+                        sizePx = brushSizePx,
+                        preset = activeBrushPreset
+                    )
+                    if (finishedShape != null) {
+                        project.currentFrame.addStrokeToLayer(project.activeLayerIndex, finishedShape)
+                        project.currentFrame.isCacheDirty = true
+                        triggerAutosave()
+                        onStateChanged?.invoke()
+                    }
+                    invalidate()
+                }
+            }
+            return true
+        }
+
         // Handle BRUSH & ERASER
         val pressure = event.pressure.coerceIn(0.1f, 1.0f)
         val stageCenterX = project.stageWidth * 0.5f
@@ -652,11 +695,15 @@ class AnimationCanvasView(
             seedX = x,
             seedY = y,
             fillColor = brushColor,
-            expandUnderLinePx = 1
+            expandUnderLinePx = 1,
+            gapClosingRadiusPx = StudioPreferences.fillGapClosingRadiusPx
         )
         targetCel.isCacheDirty = true
         project.currentFrame.isCacheDirty = true
-        CrashReporter.logInfo("FillBucket", "Filled at ($x, $y) using Reference Layer #${refLayerIdx + 1}")
+        CrashReporter.logInfo(
+            "FillBucket",
+            "Filled at ($x, $y) using Ref Layer #${refLayerIdx + 1} (GapClose=${StudioPreferences.fillGapClosingRadiusPx}px)"
+        )
         triggerAutosave()
         onStateChanged?.invoke()
         invalidate()

@@ -22,22 +22,16 @@ import com.animationapp.core.config.StudioPreferences
 import com.animationapp.core.diagnostics.CrashReporter
 import com.animationapp.engine.AnimationCanvasView
 import com.animationapp.engine.brush.BrushPreset
+import com.animationapp.engine.tools.Shape2DMode
 import com.animationapp.engine.tools.StudioToolType
 import com.animationapp.export.HardwareVideoExporter
 import com.animationapp.export.SpriteSheetExporter
 import com.animationapp.model.LayerBlendMode
+import com.animationapp.ui.color.ColorPaletteStudio
 import com.animationapp.ui.reference.ReferencePinboardView
 
 /**
- * Modular, zero-bloat Native Pro 2D Studio Workspace UI (Phases 9, 10 & 11).
- *
- * Includes:
- * - Top Action Bar: Undo, Redo, Layers Manager (`🗂 Layers`), Onion Skin Toggle, Symmetry Guide (`🦋 Sym`),
- *   2D Camera Dialog (`🎥 2D Cam`), Lip-Sync Mouth Chart (`👄 LipSync`), Floating Reference Pinboard (`📌 Ref`),
- *   Mirror Flip (`⇄ Flip`), Fit Stage (`⛶ Fit`), FPS Selector, Brush Preset Studio (`⚙ Brush`),
- *   Live UX Comfort Tuner (`🎛 Tune UX`), Export Suite (`🎬 Export`), Left/Right Hand Flip, Logs.
- * - Bottom Timeline Scrubber: Play/Pause, Step Back/Forward, Flipbook Roll Scrub (`📖 Roll`),
- *   Frame Pills (with Lip-Sync phoneme & Exposure Hold badges), Hold Timing (`⏱ 1s`), +Add, Clone, Delete.
+ * Modular, zero-bloat Native Pro 2D Studio Workspace UI (Phases 12, 13, 14 & 15).
  */
 class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activity) {
 
@@ -62,10 +56,12 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
     private lateinit var lipSyncBtn: TextView
     private lateinit var refPinBtn: TextView
     private lateinit var brushBtn: TextView
+    private lateinit var colorWheelBtn: TextView
     private lateinit var mirrorBtn: TextView
     private lateinit var fpsBtn: TextView
     private lateinit var exportBtn: TextView
     private lateinit var holdBtn: TextView
+    private lateinit var loopBtn: TextView
     private lateinit var sizeLabel: TextView
     private lateinit var activeColorDot: View
     private lateinit var toolButtons: Map<StudioToolType, TextView>
@@ -176,6 +172,10 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
             showBrushSettingsDialog()
         }
 
+        colorWheelBtn = createStudioButton("🎨 Color") {
+            openColorPaletteStudio()
+        }
+
         val btnTuneUx = createStudioButton("🎛 Tune UX") {
             showUxComfortTunerDialog()
         }
@@ -194,7 +194,7 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
 
         listOf(
             btnUndo, btnRedo, layersBtn, onionBtn, symBtn, camBtn, lipSyncBtn, refPinBtn,
-            mirrorBtn, btnFit, fpsBtn, brushBtn, btnTuneUx, exportBtn, btnHandMode, btnDiag
+            mirrorBtn, btnFit, fpsBtn, brushBtn, colorWheelBtn, btnTuneUx, exportBtn, btnHandMode, btnDiag
         ).forEach { btn ->
             val lp = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
@@ -227,6 +227,14 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
 
         val btnPen = createStudioButton("✏ Pen") { selectTool(StudioToolType.BRUSH) }
         val btnEraser = createStudioButton("⌫ Erase") { selectTool(StudioToolType.ERASER) }
+        val btnShapes = createStudioButton("📐 Shapes") {
+            if (canvasView.activeTool == StudioToolType.SHAPE_GUIDE) {
+                showShapeAndPerspectiveDialog()
+            } else {
+                selectTool(StudioToolType.SHAPE_GUIDE)
+                showShapeAndPerspectiveDialog()
+            }
+        }
         val btnCutter = createStudioButton("✂ Trim") { selectTool(StudioToolType.VECTOR_CUTTER) }
         val btnLasso = createStudioButton("⬠ Lasso") { selectTool(StudioToolType.LASSO) }
         val btnBucket = createStudioButton("🪣 Fill") { selectTool(StudioToolType.FILL_BUCKET) }
@@ -238,6 +246,7 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
         toolButtons = mapOf(
             StudioToolType.BRUSH to btnPen,
             StudioToolType.ERASER to btnEraser,
+            StudioToolType.SHAPE_GUIDE to btnShapes,
             StudioToolType.VECTOR_CUTTER to btnCutter,
             StudioToolType.LASSO to btnLasso,
             StudioToolType.FILL_BUCKET to btnBucket,
@@ -253,7 +262,7 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
         }
 
         listOf(
-            btnPen, btnEraser, btnCutter, btnLasso, btnBucket,
+            btnPen, btnEraser, btnShapes, btnCutter, btnLasso, btnBucket,
             btnPicker, btnCamTool, btnShift, btnPan
         ).forEach { btn ->
             val lp = LinearLayout.LayoutParams(dp(74f), dp(29f)).apply {
@@ -279,6 +288,9 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
 
         activeColorDot = View(context).apply {
             background = createColorOval(canvasView.brushColor, strokeWidthDp = 3f, strokeColor = Color.WHITE)
+            setOnClickListener {
+                openColorPaletteStudio()
+            }
         }
         dock.addView(
             activeColorDot,
@@ -389,6 +401,10 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
             canvasView.cycleExposureHold()
         }
 
+        loopBtn = createStudioButton("🔁 Loop") {
+            showLoopAndXSheetDialog()
+        }
+
         val btnAddFrame = createStudioButton("＋ Frame") {
             canvasView.addBlankFrame()
         }
@@ -412,7 +428,7 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
         }
 
         val controlMargin = dp(5f)
-        listOf(btnPrev, playPauseBtn, btnNext, btnFlipbookRoll, holdBtn).forEach { btn ->
+        listOf(btnPrev, playPauseBtn, btnNext, btnFlipbookRoll, holdBtn, loopBtn).forEach { btn ->
             bottomContainer.addView(
                 btn,
                 LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(36f)).apply {
@@ -571,7 +587,18 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
         holdBtn.text = "⏱ ${hold}s"
         styleButton(holdBtn, isHighlighted = (hold > 1), accentColor = Color.rgb(245, 160, 35))
 
+        if (proj.isLoopRangeEnabled) {
+            loopBtn.text = "🔁 [${proj.loopStartFrame + 1}-${proj.loopEndFrame + 1}]"
+            styleButton(loopBtn, isHighlighted = true, accentColor = Color.rgb(32, 191, 107))
+        } else {
+            loopBtn.text = "🔁 Loop"
+            styleButton(loopBtn, isHighlighted = false, accentColor = Color.rgb(42, 46, 58))
+        }
+
         toolButtons.forEach { (tool, btn) ->
+            if (tool == StudioToolType.SHAPE_GUIDE) {
+                btn.text = "${canvasView.shapeController.activeShapeMode.icon} Shapes"
+            }
             styleButton(btn, isHighlighted = (canvasView.activeTool == tool), accentColor = Color.rgb(75, 123, 236))
         }
 
@@ -588,8 +615,9 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
 
     private fun rebuildTimelinePills() {
         frameStripLayout.removeAllViews()
-        val frames = canvasView.project.frames
-        val activeIdx = canvasView.project.currentFrameIndex
+        val proj = canvasView.project
+        val frames = proj.frames
+        val activeIdx = proj.currentFrameIndex
 
         for (i in 0 until frames.size) {
             val frame = frames[i]
@@ -597,11 +625,13 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
             val hasInk = frame.hasAnyContent()
             val hasCam = canvasView.camera2D.hasKeyframeAt(i)
             val phoneme = frame.phonemeMarker
+            val loopInPrefix = if (proj.isLoopRangeEnabled && i == proj.loopStartFrame) "⟦" else ""
+            val loopOutSuffix = if (proj.isLoopRangeEnabled && i == proj.loopEndFrame) "⟧" else ""
             val holdSuffix = if (frame.exposureHold > 1) " (x${frame.exposureHold})" else ""
             val dotSuffix = if (hasInk) "•" else ""
             val camSuffix = if (hasCam) "🎥" else ""
             val phSuffix = if (phoneme != LipSyncPhoneme.NONE) "[${phoneme.code}]" else ""
-            val pillLabel = "${i + 1}$dotSuffix$camSuffix$phSuffix$holdSuffix"
+            val pillLabel = "$loopInPrefix${i + 1}$dotSuffix$camSuffix$phSuffix$holdSuffix$loopOutSuffix"
 
             val pill = TextView(context).apply {
                 text = pillLabel
@@ -766,16 +796,196 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
             }
         }
 
+        val gapLabel = TextView(context).apply {
+            text = "Paint Bucket Gap-Closing Radius: ${StudioPreferences.fillGapClosingRadiusPx} px (Seals open line gaps)"
+            setTextColor(Color.WHITE)
+            setPadding(0, dp(10f), 0, 0)
+        }
+        val gapSeek = SeekBar(context).apply {
+            max = 8
+            progress = StudioPreferences.fillGapClosingRadiusPx.coerceIn(0, 8)
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(s: SeekBar?, p: Int, fromUser: Boolean) {
+                    StudioPreferences.fillGapClosingRadiusPx = p
+                    StudioPreferences.save(context)
+                    gapLabel.text = "Paint Bucket Gap-Closing Radius: $p px (Seals open line gaps)"
+                }
+                override fun onStartTrackingTouch(s: SeekBar?) {}
+                override fun onStopTrackingTouch(s: SeekBar?) {}
+            })
+        }
+
         layout.addView(cbStylusOnly)
         layout.addView(cbTapUndo)
         layout.addView(cbTurbo)
         layout.addView(cbGrid)
         layout.addView(cbAudioScrub)
+        layout.addView(gapLabel)
+        layout.addView(gapSeek)
 
         AlertDialog.Builder(activity)
             .setTitle("Live UX & Device Comfort Tuner")
             .setView(layout)
             .setPositiveButton("Save & Close", null)
+            .show()
+    }
+
+    private fun openColorPaletteStudio() {
+        ColorPaletteStudio.showDialog(activity, canvasView.brushColor) { selectedColor ->
+            canvasView.brushColor = selectedColor
+            if (canvasView.activeTool == StudioToolType.ERASER || canvasView.activeTool == StudioToolType.HAND_PAN) {
+                selectTool(StudioToolType.BRUSH)
+            } else {
+                refreshUiState()
+            }
+        }
+    }
+
+    private fun showShapeAndPerspectiveDialog() {
+        val shapeModes = Shape2DMode.values()
+        val root = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20f), dp(14f), dp(20f), dp(10f))
+        }
+
+        for (mode in shapeModes) {
+            val isCurrent = (canvasView.shapeController.activeShapeMode == mode)
+            val btn = createStudioButton("${mode.icon} ${mode.label}") {
+                canvasView.shapeController.activeShapeMode = mode
+                selectTool(StudioToolType.SHAPE_GUIDE)
+                canvasView.invalidate()
+            }
+            styleButton(btn, isHighlighted = isCurrent, accentColor = Color.rgb(75, 123, 236))
+            root.addView(
+                btn,
+                LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, dp(36f)).apply { bottomMargin = dp(6f) }
+            )
+        }
+
+        val cbPerspectiveRuler = CheckBox(context).apply {
+            text = "Show 2-Point Perspective Horizon & Draggable VP1 / VP2 Rulers"
+            setTextColor(Color.WHITE)
+            isChecked = canvasView.shapeController.showPerspectiveRuler
+            setOnCheckedChangeListener { _, checked ->
+                canvasView.shapeController.showPerspectiveRuler = checked
+                canvasView.invalidate()
+            }
+        }
+        root.addView(cbPerspectiveRuler)
+
+        val btnResetVp = createStudioButton("🎯 Reset Vanishing Points (VP1 & VP2) to Stage Center") {
+            canvasView.shapeController.resetVanishingPoints(
+                canvasView.project.stageWidth,
+                canvasView.project.stageHeight
+            )
+            canvasView.invalidate()
+        }
+        root.addView(
+            btnResetVp,
+            LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, dp(34f)).apply { topMargin = dp(8f) }
+        )
+
+        AlertDialog.Builder(activity)
+            .setTitle("📐 2D Geometric Shapes & Perspective Rulers")
+            .setView(root)
+            .setPositiveButton("Done") { _, _ -> refreshUiState() }
+            .show()
+    }
+
+    private fun showLoopAndXSheetDialog() {
+        val proj = canvasView.project
+        val cur = proj.currentFrameIndex + 1
+        val root = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16f), dp(12f), dp(16f), dp(10f))
+        }
+
+        val loopRow = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+        }
+
+        val btnSetIn = createStudioButton("⟦ Set In (#$cur)") {
+            proj.setLoopInAtCurrent()
+            refreshUiState()
+        }
+        val btnSetOut = createStudioButton("Set Out (#$cur) ⟧") {
+            proj.setLoopOutAtCurrent()
+            refreshUiState()
+        }
+        val btnClearLoop = createStudioButton("🚫 Clear Loop") {
+            proj.clearLoopRange()
+            refreshUiState()
+        }
+
+        listOf(btnSetIn, btnSetOut, btnClearLoop).forEach { b ->
+            loopRow.addView(
+                b,
+                LinearLayout.LayoutParams(0, dp(34f), 1f).apply { marginEnd = dp(4f) }
+            )
+        }
+        root.addView(loopRow, LinearLayout.LayoutParams(
+            LayoutParams.MATCH_PARENT,
+            LayoutParams.WRAP_CONTENT
+        ).apply { bottomMargin = dp(10f) })
+
+        val xSheetHeader = TextView(context).apply {
+            text = "📋 Vertical Exposure Sheet (X-Sheet) — Tap Row to Jump:"
+            setTextColor(Color.rgb(190, 205, 230))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            setPadding(0, 0, 0, dp(6f))
+        }
+        root.addView(xSheetHeader)
+
+        val tableColumn = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+
+        for (i in 0 until proj.frames.size) {
+            val f = proj.frames[i]
+            val isCur = (i == proj.currentFrameIndex)
+            val inLoop = proj.isLoopRangeEnabled && (i in proj.loopStartFrame..proj.loopEndFrame)
+            val camTag = if (canvasView.camera2D.hasKeyframeAt(i)) "🎥Cam " else ""
+            val phTag = if (f.phonemeMarker != LipSyncPhoneme.NONE) "👄[${f.phonemeMarker.code}] " else ""
+            val celsSummary = proj.layers.indices.joinToString(" | ") { lIdx ->
+                val cel = f.getCel(lIdx)
+                val count = cel.strokes.size + (if (cel.fillBitmap != null) 1 else 0)
+                "L${lIdx + 1}:${if (count > 0) "${count}✎" else "—"}"
+            }
+
+            val rowTv = TextView(context).apply {
+                text = "Frame #${i + 1} (Hold ${f.exposureHold}s)  $phTag$camTag  [$celsSummary]"
+                setTextColor(Color.WHITE)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+                setPadding(dp(10f), dp(6f), dp(10f), dp(6f))
+                background = createRoundedBg(
+                    when {
+                        isCur -> Color.rgb(75, 123, 236)
+                        inLoop -> Color.rgb(34, 72, 58)
+                        else -> Color.rgb(36, 40, 52)
+                    },
+                    dp(7f)
+                )
+                setOnClickListener {
+                    canvasView.selectFrame(i)
+                }
+            }
+            tableColumn.addView(
+                rowTv,
+                LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply {
+                    bottomMargin = dp(4f)
+                }
+            )
+        }
+
+        val scroll = ScrollView(context).apply {
+            addView(tableColumn)
+        }
+        root.addView(scroll, LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, dp(190f)))
+
+        AlertDialog.Builder(activity)
+            .setTitle("🔁 Loop Play Range & Studio X-Sheet")
+            .setView(root)
+            .setPositiveButton("Close", null)
             .show()
     }
 

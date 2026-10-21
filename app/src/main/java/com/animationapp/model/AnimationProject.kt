@@ -33,6 +33,11 @@ class AnimationProject(
     var onionPastCount: Int = StudioConfig.DEFAULT_ONION_PAST_FRAMES
     var onionFutureCount: Int = StudioConfig.DEFAULT_ONION_FUTURE_FRAMES
 
+    // Phase 15: Timeline Loop Play Range Brackets ([ In .. Out ])
+    var isLoopRangeEnabled: Boolean = false
+    var loopStartFrame: Int = 0
+    var loopEndFrame: Int = 0
+
     val currentFrame: AnimationFrame
         get() = frames[currentFrameIndex]
 
@@ -126,12 +131,54 @@ class AnimationProject(
         return nextHold
     }
 
+    fun setLoopInAtCurrent() {
+        loopStartFrame = currentFrameIndex.coerceIn(0, frames.lastIndex)
+        if (!isLoopRangeEnabled || loopEndFrame < loopStartFrame) {
+            loopEndFrame = frames.lastIndex
+        }
+        isLoopRangeEnabled = true
+    }
+
+    fun setLoopOutAtCurrent() {
+        loopEndFrame = currentFrameIndex.coerceIn(0, frames.lastIndex)
+        if (!isLoopRangeEnabled || loopStartFrame > loopEndFrame) {
+            loopStartFrame = 0
+        }
+        isLoopRangeEnabled = true
+    }
+
+    fun clearLoopRange() {
+        isLoopRangeEnabled = false
+        loopStartFrame = 0
+        loopEndFrame = frames.lastIndex
+    }
+
     fun stepForwardLooping(): Int {
+        if (isLoopRangeEnabled && frames.size > 1) {
+            val start = loopStartFrame.coerceIn(0, frames.lastIndex)
+            val end = loopEndFrame.coerceIn(start, frames.lastIndex)
+            currentFrameIndex = if (currentFrameIndex >= end || currentFrameIndex < start) {
+                start
+            } else {
+                currentFrameIndex + 1
+            }
+            return currentFrameIndex
+        }
         currentFrameIndex = (currentFrameIndex + 1) % frames.size
         return currentFrameIndex
     }
 
     fun stepBackwardLooping(): Int {
+        if (isLoopRangeEnabled && frames.size > 1) {
+            val start = loopStartFrame.coerceIn(0, frames.lastIndex)
+            val end = loopEndFrame.coerceIn(start, frames.lastIndex)
+            currentFrameIndex = if (currentFrameIndex <= start || currentFrameIndex > end) {
+                end
+            } else {
+                currentFrameIndex - 1
+            }
+            return currentFrameIndex
+        }
         currentFrameIndex = if (currentFrameIndex - 1 < 0) frames.lastIndex else currentFrameIndex - 1
         return currentFrameIndex
     }
