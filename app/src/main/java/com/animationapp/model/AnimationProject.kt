@@ -8,11 +8,19 @@ import com.animationapp.core.config.StudioConfig
  * Exposure Holds (1s/2s/3s), Reference Layer, and Onion Skinning.
  */
 class AnimationProject(
-    val stageWidth: Int = StudioConfig.DEFAULT_STAGE_WIDTH,
-    val stageHeight: Int = StudioConfig.DEFAULT_STAGE_HEIGHT,
+    var stageWidth: Int = StudioConfig.DEFAULT_STAGE_WIDTH,
+    var stageHeight: Int = StudioConfig.DEFAULT_STAGE_HEIGHT,
     var fps: Int = StudioConfig.DEFAULT_FPS,
-    var stageBackgroundColor: Int = Color.WHITE
+    var stageBackgroundColor: Int = Color.WHITE,
+    var projectName: String = "Untitled_Scene"
 ) {
+    fun resizeStage(newWidth: Int, newHeight: Int) {
+        stageWidth = newWidth.coerceIn(128, 2560)
+        stageHeight = newHeight.coerceIn(128, 2560)
+        for (f in frames) {
+            f.isCacheDirty = true
+        }
+    }
     // Default studio setup: Layer 0 = "Color Fill" (bottom), Layer 1 = "Ink Line-Art" (top, set as Reference)
     val layers = ArrayList<AnimationLayer>().apply {
         add(AnimationLayer(name = "Color Layer", isReferenceLayer = false))

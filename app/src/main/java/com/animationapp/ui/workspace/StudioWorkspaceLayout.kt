@@ -9,6 +9,7 @@ import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.widget.CheckBox
+import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
@@ -21,21 +22,26 @@ import com.animationapp.audio.LipSyncPhoneme
 import com.animationapp.audio.VoiceoverWaveformEngine
 import com.animationapp.core.config.StudioPreferences
 import com.animationapp.core.diagnostics.CrashReporter
+import com.animationapp.core.storage.CanvasStagePreset
 import com.animationapp.core.storage.DiskSwapManager
+import com.animationapp.core.storage.MultiProjectManager
+import com.animationapp.core.storage.StagePaperPreset
 import com.animationapp.engine.AnimationCanvasView
 import com.animationapp.engine.brush.BrushPreset
 import com.animationapp.engine.tools.Shape2DMode
 import com.animationapp.engine.tools.StudioToolType
 import com.animationapp.engine.tween.TweenEasingType
+import com.animationapp.export.GifAndZipSequenceExporter
 import com.animationapp.export.HardwareVideoExporter
 import com.animationapp.export.SpriteSheetExporter
 import com.animationapp.model.AnimationLayer
 import com.animationapp.model.LayerBlendMode
 import com.animationapp.ui.color.ColorPaletteStudio
+import com.animationapp.ui.radial.RadialPieMenuView
 import com.animationapp.ui.reference.ReferencePinboardView
 
 /**
- * Modular, zero-bloat Native Pro 2D Studio Workspace UI (Phases 12, 13, 14 & 15).
+ * Modular, zero-bloat Native Pro 2D Studio Workspace UI (Phases 1 through 25).
  */
 class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activity) {
 
@@ -48,17 +54,20 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
             refreshUiState()
         }
     }
+    private val radialPieMenu = RadialPieMenuView(activity)
 
     private var isLeftHandedMode = false
     private lateinit var toolDockContainer: LinearLayout
     private lateinit var frameStripLayout: LinearLayout
     private lateinit var playPauseBtn: TextView
+    private lateinit var sceneBtn: TextView
     private lateinit var layersBtn: TextView
     private lateinit var onionBtn: TextView
     private lateinit var symBtn: TextView
     private lateinit var camBtn: TextView
     private lateinit var lipSyncBtn: TextView
     private lateinit var refPinBtn: TextView
+    private lateinit var pieMenuBtn: TextView
     private lateinit var brushBtn: TextView
     private lateinit var colorWheelBtn: TextView
     private lateinit var mirrorBtn: TextView
@@ -104,6 +113,18 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
             }
         )
 
+        // 2b. Add Floating Quick Radial Pie Menu (`🎯 Pie` — Phase 25)
+        radialPieMenu.visibility = View.GONE
+        radialPieMenu.onToolSelected = { selectTool(it) }
+        radialPieMenu.onUndo = { canvasView.performUndo() }
+        radialPieMenu.onRedo = { canvasView.performRedo() }
+        radialPieMenu.onTogglePlay = { canvasView.togglePlayback() }
+        radialPieMenu.onAddFrame = { canvasView.addBlankFrame() }
+        addView(
+            radialPieMenu,
+            LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
+        )
+
         // 3. Build Top Studio Action Bar
         addView(buildTopActionBar())
 
@@ -132,6 +153,10 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
         val btnUndo = createStudioButton("↶ Undo") { canvasView.performUndo() }
         val btnRedo = createStudioButton("↷ Redo") { canvasView.performRedo() }
 
+        sceneBtn = createStudioButton("📁 Scene") {
+            showProjectAndStageStudioDialog()
+        }
+
         layersBtn = createStudioButton("🗂 Layers") {
             showLayerManagerDialog()
         }
@@ -157,6 +182,12 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
         refPinBtn = createStudioButton("📌 Ref") {
             val nowVisible = (referencePinboard.visibility != View.VISIBLE)
             referencePinboard.visibility = if (nowVisible) View.VISIBLE else View.GONE
+            refreshUiState()
+        }
+
+        pieMenuBtn = createStudioButton("🎯 Pie") {
+            val nowVisible = (radialPieMenu.visibility != View.VISIBLE)
+            radialPieMenu.visibility = if (nowVisible) View.VISIBLE else View.GONE
             refreshUiState()
         }
 
@@ -197,8 +228,8 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
         }
 
         listOf(
-            btnUndo, btnRedo, layersBtn, onionBtn, symBtn, camBtn, lipSyncBtn, refPinBtn,
-            mirrorBtn, btnFit, fpsBtn, brushBtn, colorWheelBtn, btnTuneUx, exportBtn, btnHandMode, btnDiag
+            btnUndo, btnRedo, sceneBtn, layersBtn, onionBtn, symBtn, camBtn, lipSyncBtn, refPinBtn,
+            pieMenuBtn, mirrorBtn, btnFit, fpsBtn, brushBtn, colorWheelBtn, btnTuneUx, exportBtn, btnHandMode, btnDiag
         ).forEach { btn ->
             val lp = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
@@ -495,15 +526,208 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
     private fun showExportSuiteDialog() {
         val options = arrayOf(
             "🎬 Export 1080p MP4 Video (Hardware H.264 to Movies/)",
-            "👾 Export 2D Sprite Sheet PNG + JSON Atlas (to Pictures/)"
+            "👾 Export 2D Sprite Sheet PNG + JSON Atlas (to Pictures/)",
+            "🎞 Export Animated .GIF Loop (Universal GIF89a to Pictures/)",
+            "📦 Export PNG Frame Sequence .ZIP Archive (to Downloads/)"
         )
         AlertDialog.Builder(activity)
-            .setTitle("Pro Export Suite")
+            .setTitle("Pro 2D Export Suite")
             .setItems(options) { _, which ->
-                if (which == 0) {
-                    triggerHardwareMp4Export()
+                when (which) {
+                    0 -> triggerHardwareMp4Export()
+                    1 -> triggerSpriteSheetExport()
+                    2 -> triggerGifExport()
+                    3 -> triggerZipSequenceExport()
+                }
+            }
+            .show()
+    }
+
+    private fun triggerGifExport() {
+        canvasView.pausePlayback()
+        exportBtn.text = "⏳ GIF..."
+        exportBtn.isEnabled = false
+        styleButton(exportBtn, isHighlighted = true, accentColor = Color.rgb(220, 80, 200))
+
+        GifAndZipSequenceExporter.exportAnimatedGifAsync(activity, canvasView.project) { success, message ->
+            post {
+                exportBtn.text = "🎬 Export"
+                exportBtn.isEnabled = true
+                styleButton(exportBtn, isHighlighted = false, accentColor = Color.rgb(42, 46, 58))
+
+                if (success) {
+                    Toast.makeText(activity, "Saved Animated GIF to $message", Toast.LENGTH_LONG).show()
                 } else {
-                    triggerSpriteSheetExport()
+                    AlertDialog.Builder(activity)
+                        .setTitle("GIF Export Error")
+                        .setMessage(message)
+                        .setPositiveButton("OK", null)
+                        .show()
+                }
+            }
+        }
+    }
+
+    private fun triggerZipSequenceExport() {
+        canvasView.pausePlayback()
+        exportBtn.text = "⏳ ZIP..."
+        exportBtn.isEnabled = false
+        styleButton(exportBtn, isHighlighted = true, accentColor = Color.rgb(45, 195, 130))
+
+        GifAndZipSequenceExporter.exportPngSequenceZipAsync(activity, canvasView.project) { success, message ->
+            post {
+                exportBtn.text = "🎬 Export"
+                exportBtn.isEnabled = true
+                styleButton(exportBtn, isHighlighted = false, accentColor = Color.rgb(42, 46, 58))
+
+                if (success) {
+                    Toast.makeText(activity, "Saved PNG Sequence ZIP to $message", Toast.LENGTH_LONG).show()
+                } else {
+                    AlertDialog.Builder(activity)
+                        .setTitle("ZIP Export Error")
+                        .setMessage(message)
+                        .setPositiveButton("OK", null)
+                        .show()
+                }
+            }
+        }
+    }
+
+    private fun showProjectAndStageStudioDialog() {
+        val proj = canvasView.project
+        val savedList = MultiProjectManager.listSavedProjects(context)
+
+        val layout = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20f), dp(14f), dp(20f), dp(10f))
+        }
+
+        val nameLabel = TextView(context).apply {
+            text = "Scene Name (${proj.stageWidth}×${proj.stageHeight}):"
+            setTextColor(Color.WHITE)
+        }
+        val nameInput = EditText(context).apply {
+            setText(proj.projectName)
+            setTextColor(Color.WHITE)
+            setHintTextColor(Color.GRAY)
+            hint = "Enter scene name..."
+        }
+        layout.addView(nameLabel)
+        layout.addView(nameInput)
+
+        val btnSaveSlot = createStudioButton("💾 Save Scene Slot ('${proj.projectName}.pas')") {
+            val newName = nameInput.text.toString().trim().ifEmpty { "Scene_1" }
+            val ok = MultiProjectManager.saveProjectSlot(context, proj, newName)
+            canvasView.triggerAutosave()
+            refreshUiState()
+            if (ok) {
+                Toast.makeText(activity, "Saved scene '$newName.pas'", Toast.LENGTH_SHORT).show()
+            }
+        }
+        layout.addView(
+            btnSaveSlot,
+            LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, dp(36f)).apply { topMargin = dp(8f) }
+        )
+
+        if (savedList.isNotEmpty()) {
+            val btnLoadSaved = createStudioButton("📂 Open Saved Scene (${savedList.size} slots)") {
+                val names = savedList.toTypedArray()
+                AlertDialog.Builder(activity)
+                    .setTitle("Load Saved .PAS Scene")
+                    .setItems(names) { _, idx ->
+                        val chosen = names[idx]
+                        if (MultiProjectManager.loadProjectSlot(context, proj, chosen)) {
+                            canvasView.fitStageToScreen()
+                            canvasView.triggerAutosave()
+                            refreshUiState()
+                            Toast.makeText(activity, "Loaded '$chosen'", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                    .show()
+            }
+            layout.addView(
+                btnLoadSaved,
+                LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, dp(36f)).apply { topMargin = dp(6f) }
+            )
+        }
+
+        val aspectTitle = TextView(context).apply {
+            text = "2D Stage Aspect Ratio Preset (Live Resize or New Blank Scene):"
+            setTextColor(Color.rgb(180, 195, 220))
+            setPadding(0, dp(12f), 0, dp(4f))
+        }
+        layout.addView(aspectTitle)
+
+        CanvasStagePreset.values().forEach { preset ->
+            val row = LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+            }
+            val isCurrentAspect = (proj.stageWidth == preset.width && proj.stageHeight == preset.height)
+            val btnResize = createStudioButton("${preset.icon} Resize to ${preset.label}") {
+                proj.resizeStage(preset.width, preset.height)
+                canvasView.fitStageToScreen()
+                canvasView.triggerAutosave()
+                refreshUiState()
+                Toast.makeText(activity, "Stage resized to ${preset.width}×${preset.height}", Toast.LENGTH_SHORT).show()
+            }
+            styleButton(btnResize, isHighlighted = isCurrentAspect, accentColor = Color.rgb(65, 115, 220))
+
+            val btnNewBlank = createStudioButton("✨ New") {
+                val newName = nameInput.text.toString().trim().ifEmpty { "Scene_1" }
+                MultiProjectManager.resetToNewBlankProject(proj, newName, preset)
+                canvasView.fitStageToScreen()
+                canvasView.triggerAutosave()
+                refreshUiState()
+                Toast.makeText(activity, "Created new ${preset.label} scene", Toast.LENGTH_SHORT).show()
+            }
+
+            row.addView(btnResize, LinearLayout.LayoutParams(0, dp(34f), 1f).apply { marginEnd = dp(6f) })
+            row.addView(btnNewBlank, LinearLayout.LayoutParams(LayoutParams.WRAP_CONTENT, dp(34f)))
+            layout.addView(row, LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(5f) })
+        }
+
+        val paperTitle = TextView(context).apply {
+            text = "Stage Paper / Background Color:"
+            setTextColor(Color.rgb(180, 195, 220))
+            setPadding(0, dp(10f), 0, dp(4f))
+        }
+        layout.addView(paperTitle)
+
+        val paperRow = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        StagePaperPreset.values().forEach { paper ->
+            val swatch = View(context).apply {
+                val isSelected = (proj.canvasPaperColor == paper.color)
+                background = createColorOval(
+                    paper.color,
+                    strokeWidthDp = if (isSelected) 3f else 1.5f,
+                    strokeColor = if (isSelected) Color.rgb(0, 210, 255) else Color.rgb(110, 115, 130)
+                )
+                setOnClickListener {
+                    proj.canvasPaperColor = paper.color
+                    proj.markAllFramesDirty()
+                    canvasView.triggerAutosave()
+                    canvasView.invalidate()
+                    Toast.makeText(activity, paper.label, Toast.LENGTH_SHORT).show()
+                }
+            }
+            paperRow.addView(swatch, LinearLayout.LayoutParams(dp(30f), dp(30f)).apply { marginEnd = dp(10f) })
+        }
+        layout.addView(paperRow)
+
+        val scroll = ScrollView(context).apply { addView(layout) }
+        AlertDialog.Builder(activity)
+            .setTitle("2D Scene & Stage Aspect Ratio Studio")
+            .setView(scroll)
+            .setPositiveButton("Done") { _, _ ->
+                val entered = nameInput.text.toString().trim()
+                if (entered.isNotEmpty()) {
+                    proj.projectName = entered
+                    canvasView.triggerAutosave()
+                    refreshUiState()
                 }
             }
             .show()
@@ -565,6 +789,8 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
         playPauseBtn.text = if (canvasView.isPlaying) "⏸ Pause" else "▶ Play"
         styleButton(playPauseBtn, isHighlighted = canvasView.isPlaying, accentColor = Color.rgb(0, 200, 130))
 
+        sceneBtn.text = "📁 ${proj.projectName} (${proj.stageWidth}×${proj.stageHeight})"
+
         val activeLayer = proj.activeLayer
         val refBadge = if (activeLayer.isReferenceLayer) " [Ref]" else ""
         layersBtn.text = "🗂 ${activeLayer.name}$refBadge"
@@ -589,6 +815,12 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
             refPinBtn,
             isHighlighted = (referencePinboard.visibility == View.VISIBLE),
             accentColor = Color.rgb(0, 185, 165)
+        )
+
+        styleButton(
+            pieMenuBtn,
+            isHighlighted = (radialPieMenu.visibility == View.VISIBLE),
+            accentColor = Color.rgb(75, 123, 236)
         )
 
         val preset = canvasView.activeBrushPreset

@@ -153,6 +153,7 @@ class AnimationCanvasView(
     private fun ensureCachesAllocated() {
         val w = project.stageWidth
         val h = project.stageHeight
+        stageRect.set(0f, 0f, w.toFloat(), h.toFloat())
         val comp = compositeCacheBitmap
         if (comp == null || comp.isRecycled || comp.width != w || comp.height != h) {
             comp?.let { if (!it.isRecycled) it.recycle() }
@@ -1070,6 +1071,7 @@ class AnimationCanvasView(
     }
 
     fun fitStageToScreen() {
+        ensureCachesAllocated()
         onionSkinRenderer.resetShiftOffset()
         viewport.fitStageToViewport(width, height, project.stageWidth, project.stageHeight)
         onStateChanged?.invoke()

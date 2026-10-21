@@ -19,11 +19,12 @@ import java.io.FileOutputStream
 import java.util.concurrent.Executors
 
 /**
- * Atomic Binary Crash-Safe Autosave Engine (v2 — supports BrushPreset & LipSyncPhoneme).
+ * Atomic Binary Crash-Safe Autosave & `.pas` Project Serializer (v3 — supports Stage Dimensions,
+ * Project Name, BrushPreset, LipSyncPhoneme, and Non-Destructive 2D Layer VFX).
  */
 object CrashSafeAutosave {
 
-    private const val MAGIC_HEADER = 0x50415332 // "PAS2" (ProAnimation Studio v2)
+    private const val MAGIC_HEADER_V3 = 0x50415333 // "PAS3"
     private const val AUTOSAVE_FILE = "autosave.pas"
     private const val AUTOSAVE_TMP_FILE = "autosave.pas.tmp"
 
@@ -44,9 +45,20 @@ object CrashSafeAutosave {
     fun writeProjectAtomically(context: Context, project: AnimationProject) {
         val tmpFile = File(context.filesDir, AUTOSAVE_TMP_FILE)
         val finalFile = File(context.filesDir, AUTOSAVE_FILE)
+        writeProjectToFile(tmpFile, project)
+        if (finalFile.exists()) {
+            finalFile.delete()
+        }
+        tmpFile.renameTo(finalFile)
+    }
 
-        DataOutputStream(BufferedOutputStream(FileOutputStream(tmpFile))).use { out ->
-            out.writeInt(MAGIC_HEADER)
+    @Synchronized
+    fun writeProjectToFile(targetFile: File, project: AnimationProject) {
+        DataOutputStream(BufferedOutputStream(FileOutputStream(targetFile))).use { out ->
+            out.writeInt(MAGIC_HEADER_V3)
+            out.writeUTF(project.projectName)
+            out.writeInt(project.stageWidth)
+            out.writeInt(project.stageHeight)
             out.writeInt(project.fps)
             out.writeInt(project.stageBackgroundColor)
             out.writeInt(project.activeLayerIndex)
@@ -63,6 +75,9 @@ object CrashSafeAutosave {
                 out.writeBoolean(layer.isReferenceLayer)
                 out.writeFloat(layer.opacity)
                 out.writeInt(layer.blendMode.ordinal)
+                out.writeFloat(layer.vfxLineBoilPx)
+                out.writeFloat(layer.vfxGlowRadiusPx)
+                out.writeFloat(layer.vfxDropShadowOffsetPx)
             }
 
             val frameCount = project.frames.size
@@ -71,6 +86,7 @@ object CrashSafeAutosave {
                 val frame = project.frames[fIdx]
                 out.writeInt(frame.exposureHold)
                 out.writeInt(frame.phonemeMarker.ordinal)
+                out.writeFloat(frame.audioAmplitude)
                 for (lIdx in 0 until layerCount) {
                     val cel = frame.getCel(lIdx)
                     val strokes = cel.strokes
@@ -93,23 +109,27 @@ object CrashSafeAutosave {
             }
             out.flush()
         }
-
-        if (finalFile.exists()) {
-            finalFile.delete()
-        }
-        tmpFile.renameTo(finalFile)
     }
 
     @Synchronized
     fun loadSavedProjectIfPresent(context: Context, targetProject: AnimationProject): Boolean {
         val finalFile = File(context.filesDir, AUTOSAVE_FILE)
-        if (!finalFile.exists() || finalFile.length() < 16L) return false
+        return readProjectFromFile(finalFile, targetProject)
+    }
+
+    @Synchronized
+    fun readProjectFromFile(sourceFile: File, targetProject: AnimationProject): Boolean {
+        if (!sourceFile.exists() || sourceFile.length() < 16L) return false
 
         return try {
-            DataInputStream(BufferedInputStream(FileInputStream(finalFile))).use { input ->
+            DataInputStream(BufferedInputStream(FileInputStream(sourceFile))).use { input ->
                 val magic = input.readInt()
-                if (magic != MAGIC_HEADER) return false
+                if (magic != MAGIC_HEADER_V3) return false
 
+                targetProject.projectName = input.readUTF()
+                val loadedW = input.readInt().coerceIn(128, 2560)
+                val loadedH = input.readInt().coerceIn(128, 2560)
+                targetProject.resizeStage(loadedW, loadedH)
                 targetProject.fps = input.readInt().coerceIn(1, 120)
                 targetProject.stageBackgroundColor = input.readInt()
                 val savedActiveLayer = input.readInt()
@@ -126,6 +146,9 @@ object CrashSafeAutosave {
                     val isRef = input.readBoolean()
                     val opacity = input.readFloat()
                     val blendOrd = input.readInt().coerceIn(0, blendModes.lastIndex)
+                    val boilPx = input.readFloat()
+                    val glowPx = input.readFloat()
+                    val shadowPx = input.readFloat()
                     targetProject.layers.add(
                         AnimationLayer(
                             name = name,
@@ -134,7 +157,10 @@ object CrashSafeAutosave {
                             isAlphaLocked = alphaLock,
                             isReferenceLayer = isRef,
                             opacity = opacity,
-                            blendMode = blendModes[blendOrd]
+                            blendMode = blendModes[blendOrd],
+                            vfxLineBoilPx = boilPx,
+                            vfxGlowRadiusPx = glowPx,
+                            vfxDropShadowOffsetPx = shadowPx
                         )
                     )
                 }
@@ -146,10 +172,12 @@ object CrashSafeAutosave {
                 for (fIdx in 0 until frameCount) {
                     val hold = input.readInt().coerceIn(1, 24)
                     val phOrd = input.readInt().coerceIn(0, phonemes.lastIndex)
+                    val amp = input.readFloat()
                     val frame = AnimationFrame(
                         layerCount = layerCount,
                         exposureHold = hold,
-                        phonemeMarker = phonemes[phOrd]
+                        phonemeMarker = phonemes[phOrd],
+                        audioAmplitude = amp
                     )
                     for (lIdx in 0 until layerCount) {
                         val cel = frame.getCel(lIdx)
@@ -179,11 +207,14 @@ object CrashSafeAutosave {
 
                 targetProject.selectLayer(savedActiveLayer)
                 targetProject.selectFrame(savedFrameIdx)
-                CrashReporter.logInfo("Autosave", "Restored ${targetProject.frames.size} frames & ${targetProject.layers.size} layers from PAS2")
+                CrashReporter.logInfo(
+                    "Autosave",
+                    "Loaded '${targetProject.projectName}' (${targetProject.stageWidth}x${targetProject.stageHeight}, ${targetProject.frames.size} frames)"
+                )
                 true
             }
         } catch (t: Throwable) {
-            CrashReporter.logInfo("Autosave", "Failed to load autosave: ${t.message}")
+            CrashReporter.logInfo("Autosave", "Failed to load project file: ${t.message}")
             false
         }
     }

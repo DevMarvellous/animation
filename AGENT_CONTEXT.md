@@ -17,7 +17,7 @@
 ---
 
 ### 2. Current Project Status & Total 25-Phase (3-Tier) Master Roadmap
-- **Total Phases Planned**: **25 Phases across 3 Tiers** (Phases 1 through 22 are now **COMPLETED**!).
+- **Total Phases Planned**: **25 Phases across 3 Tiers** (ALL 25 PHASES — 100% — ARE NOW **COMPLETED**!).
 
 #### Tier 1: Core 2D Studio Engine (Phases 1–10 — ALL COMPLETED!)
   - **Phase 1 (Done)**: Zero-bloat Kotlin setup & Cloud APK GitHub Actions pipeline.
@@ -41,14 +41,14 @@
   - **Phase 17 (Done)**: 4-Point Perspective Corner-Pin & 3x3 Bilinear Mesh Cage Deform inside the 2D Lasso Tool (`LassoTransformController.kt` & `Stroke.applyCornerPinDeform`).
   - **Phase 18 (Done)**: `DiskSwapManager.kt` Virtual Memory Frame Streaming (maintains a hot window around `currentFrameIndex` and streams cold `fillBitmap`s to `cacheDir/cel_swap/` to prevent Out-Of-Memory crashes on 2GB RAM phones).
 
-#### Tier 3: Cut-Out Rigging, Graph Editor, VFX & Pro Studio Exports (Phases 19–25)
+#### Tier 3: Cut-Out Rigging, Graph Editor, VFX & Pro Studio Exports (Phases 19–25 — ALL COMPLETED!)
   - **Phase 19 (Done)**: Per-Layer Keyframe Tweening (`📈 Tween`), 5 Velocity Easing Curves (`Linear`, `Smooth Ease In/Out`, `Snappy Ease-Out Anime`, `Heavy Ease-In`, `Cartoon Bounce Out`), & Stage Motion Path Trajectory Arc (`LayerTweenEngine.kt`).
   - **Phase 20 (Done)**: 2D Cut-Out Skeletal Bone Rigging (`🦴 Rig` — 10-Bone Humanoid Rig with Parent-Child Forward Kinematics + 2-Bone Law-of-Cosines Analytic Inverse Kinematics & Live Layer Stroke Deformation in `Skeleton2DController.kt`).
-  - **Phase 21 (Done)**: Non-Destructive 2D Layer VFX Modifiers (`✨ VFX` in Layer Manager — Procedural Hand-Drawn Line-Boil Shimmer, Anime Glow/Bloom, and 2D Cel Drop Shadow in `LayerVfxEngine.kt`, synced with MP4 & Sprite Sheet Exporters).
+  - **Phase 21 (Done)**: Non-Destructive 2D Layer VFX Modifiers (`✨ VFX` in Layer Manager — Procedural Hand-Drawn Line-Boil Shimmer, Anime Glow/Bloom, and 2D Cel Drop Shadow in `LayerVfxEngine.kt`, synced with all Exporters).
   - **Phase 22 (Done)**: Voiceover Waveform Envelope & 1-Tap Auto-Lip-Sync Mouth Generator (`VoiceoverWaveformEngine.kt` — generates vocal syllable waveforms `▁▂▃▅▇` and maps amplitude peaks to Preston Blair 2D mouth phonemes across all frames).
-  - **Phase 23 (Next)**: Multi-Project Home Gallery, Custom Canvas Aspect Ratio Presets (1080p 16:9, Square 1:1, Vertical 9:16 Shorts/TikTok, Retro Pixel Art), & `.pas` Project File Share/Import.
-  - **Phase 24 (Next)**: Animated GIF Exporter & PNG Sequence `.zip` Archive Exporter.
-  - **Phase 25 (Next)**: Floating One-Handed Quick-Access Radial Pie Menu & Custom Gesture Shortcut Mapper.
+  - **Phase 23 (Done)**: Multi-Project Slot Manager (`📁 Scene`), Custom 2D Stage Aspect Ratio Presets (`16:9 Widescreen`, `9:16 Vertical Shorts/TikTok`, `1:1 Square`, `4:3 Retro`), & 5 Stage Paper Color Presets (`MultiProjectManager.kt`).
+  - **Phase 24 (Done)**: Zero-Bloat Pure-Kotlin Animated `.GIF` Loop Exporter (`GIF89a` LZW encoder) & PNG Frame Sequence `.ZIP` Archive Exporter (`GifAndZipSequenceExporter.kt`), 100% synced with Layer Tweens, Exposure Holds, Disk Swap, and 2D Layer VFX.
+  - **Phase 25 (Done)**: Floating One-Handed Quick-Access 8-Slice Radial Pie Menu (`🎯 Pie` in `RadialPieMenuView.kt`).
 
 ---
 
@@ -66,11 +66,12 @@ com.animationapp/
 │   ├── config/StudioPreferences.kt        # Live in-app UX comfort tuner (Palm Rejection, Turbo Mode, Grid)
 │   ├── diagnostics/CrashReporter.kt       # In-app crash catcher & live log viewer with clipboard copy
 │   ├── profiler/PerformanceHud.kt         # FPS, frame-time (ms), RAM heap, frame & zoom counter
-│   ├── storage/CrashSafeAutosave.kt       # Background atomic binary .pas (PAS2) autosave & restoration
-│   └── storage/DiskSwapManager.kt         # Virtual Memory cold-cel disk swapper for 2GB RAM phones
+│   ├── storage/CrashSafeAutosave.kt       # Background atomic binary .pas (PAS3) autosave & restoration
+│   ├── storage/DiskSwapManager.kt         # Virtual Memory cold-cel disk swapper for 2GB RAM phones
+│   └── storage/MultiProjectManager.kt     # Multi-slot .pas scene manager, 16:9/9:16/1:1/4:3 presets & paper colors
 ├── model/
-│   ├── AnimationProject.kt                # Multi-layer stack, FPS, background color, frame list
-│   ├── AnimationFrame.kt                  # Per-layer LayerCels, exposure hold (1s/2s/3s/4s), phoneme marker
+│   ├── AnimationProject.kt                # Multi-layer stack, stage aspect ratio, FPS, paper color, frame list
+│   ├── AnimationFrame.kt                  # Per-layer LayerCels, exposure hold (1s/2s/3s/4s), phoneme & waveform
 │   ├── AnimationLayer.kt                  # LayerCel, AnimationLayer, LayerBlendMode, Reference, Tween & VFX
 │   └── Stroke.kt                          # Packed FloatArray coordinates + BrushPreset + 2D Matrix & Cage Warp
 ├── engine/
@@ -89,12 +90,14 @@ com.animationapp/
 │   ├── tools/SmartFloodFillEngine.kt      # Scanline Flood Fill + Ref Layer + 1px trap + Morphological Gap-Closing
 │   └── onion/OnionSkinRenderer.kt         # Multi-frame tinted Onion Skinning + Shift-and-Trace Light Table
 ├── export/
+│   ├── GifAndZipSequenceExporter.kt       # Pure-Kotlin Animated GIF89a (LZW) & PNG Sequence .ZIP archive exporter
 │   ├── HardwareVideoExporter.kt           # Hardware-accelerated 1080p H.264 MP4 exporter (MediaCodec)
 │   └── SpriteSheetExporter.kt             # Transparent 2D Sprite Sheet PNG + JSON Coordinate Atlas exporter
 └── ui/
     ├── color/ColorPaletteStudio.kt        # Pre-rendered 2D HSV Color Wheel, Opacity, Hex & Custom Swatches
+    ├── radial/RadialPieMenuView.kt        # One-handed floating 8-slice quick-access Radial Pie Menu (`🎯 Pie`)
     ├── reference/ReferencePinboardView.kt # PureRef-style draggable 2D character sheet & mouth chart pinboard
-    └── workspace/StudioWorkspaceLayout.kt # Layer manager, 2D Cam, Lip-Sync, Loop/X-Sheet, Roll wheel, timeline
+    └── workspace/StudioWorkspaceLayout.kt # Scene/Aspect studio, Layer manager, 2D Cam, Lip-Sync, Loop/X-Sheet, Roll wheel
 ```
 
 ---
@@ -118,10 +121,13 @@ com.animationapp/
   - Built **Phase 16 (`AnimationLayer.kt` + `AnimationFrame.kt` + `AnimationProject.kt`)**: Linked Cels / Reusable 2D Symbols (`🔗 Link` inside `⧉ Clone` menu — shares a master `LayerCel` across frames with 0 extra RAM, updating all linked frames live when edited, plus `🔓 Unlink`).
   - Built **Phase 17 (`LassoTransformController.kt` + `Stroke.kt`)**: 4-Point Perspective Corner-Pin & 3x3 Bilinear Mesh Cage Deform inside the 2D Lasso Tool (`applyCornerPinDeform`).
   - Built **Phase 18 (`DiskSwapManager.kt`)**: Virtual Memory Frame Streaming (maintains a hot window around `currentFrameIndex` and streams cold `fillBitmap`s to `cacheDir/cel_swap/` to prevent Out-Of-Memory crashes on 2GB RAM phones).
-- **2026-10-21 (Session 5 - Phases 19, 20, 21 & 22)**:
-  - Built **Phase 19 (`LayerTweenEngine.kt`)**: Per-Layer Keyframe Tweening (`📈 Tween`), 5 Velocity Easing Curves (`Linear`, `Smooth Ease In/Out`, `Snappy Ease-Out Anime`, `Heavy Ease-In`, `Cartoon Bounce Out`), and Stage Motion Path Trajectory Arcs, synced across live stage, MP4 export, and Sprite Sheet export.
+- **2026-10-21 (Session 5 - Phases 19 through 25 — Tier 3 & All 25 Phases Completed!)**:
+  - Built **Phase 19 (`LayerTweenEngine.kt`)**: Per-Layer Keyframe Tweening (`📈 Tween`), 5 Velocity Easing Curves (`Linear`, `Smooth Ease In/Out`, `Snappy Ease-Out Anime`, `Heavy Ease-In`, `Cartoon Bounce Out`), and Stage Motion Path Trajectory Arcs, synced across live stage and all exporters.
   - Built **Phase 20 (`Skeleton2DController.kt`)**: 2D Cut-Out Skeletal Bone Rigging (`🦴 Rig`) with a 10-Bone Humanoid Rig, Parent-Child Forward Kinematics (FK), 2-Bone Law-of-Cosines Analytic Inverse Kinematics (IK), and live layer stroke deformation.
-  - Built **Phase 21 (`LayerVfxEngine.kt`)**: Non-Destructive 2D Layer VFX Modifiers (`✨ VFX` in Layer Manager) — Procedural Hand-Drawn Line-Boil Shimmer, Anime Glow/Bloom, and 2D Cel Drop Shadow, synced with MP4 & Sprite Sheet Exporters.
+  - Built **Phase 21 (`LayerVfxEngine.kt`)**: Non-Destructive 2D Layer VFX Modifiers (`✨ VFX` in Layer Manager) — Procedural Hand-Drawn Line-Boil Shimmer, Anime Glow/Bloom, and 2D Cel Drop Shadow, synced with all exporters.
   - Built **Phase 22 (`VoiceoverWaveformEngine.kt`)**: Voiceover Waveform Envelope (`▁▂▃▅▇`) & 1-Tap Auto-Lip-Sync Mouth Generator across all frames.
+  - Built **Phase 23 (`MultiProjectManager.kt` + `CrashSafeAutosave.kt` PAS3)**: Multi-Project `.pas` Slot Manager (`📁 Scene`), Custom 2D Stage Aspect Ratio Presets (`16:9 Widescreen 1280×720`, `9:16 Vertical Shorts/TikTok 720×1280`, `1:1 Square 960×960`, `4:3 Retro 640×480`), and 5 Stage Paper Color Presets.
+  - Built **Phase 24 (`GifAndZipSequenceExporter.kt`)**: Zero-Bloat Pure-Kotlin Animated `.GIF` Loop Exporter (`GIF89a` with 256-color 3-3-2 RGB Global Palette, Netscape 2.0 loop extension, and Clear-Code LZW encoder) and PNG Frame Sequence `.ZIP` Archive Exporter (with `project_manifest.json`).
+  - Built **Phase 25 (`RadialPieMenuView.kt`)**: Floating One-Handed Quick-Access 8-Slice Radial Pie Menu (`🎯 Pie` for instant thumb-swipe access to `✏ Pen`, `⌫ Erase`, `🪣 Fill`, `⬠ Lasso`, `↶ Undo`, `↷ Redo`, `▶ Play`, and `＋ Frame`).
 
 
