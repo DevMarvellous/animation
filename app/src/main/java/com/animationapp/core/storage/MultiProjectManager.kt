@@ -31,7 +31,7 @@ enum class StagePaperPreset(val label: String, val color: Int) {
 /**
  * Multi-Project Scene Manager (Phase 23).
  *
- * Allows animators to save multiple named `.pas` projects (`filesDir/projects/*.pas`),
+ * Allows animators to save multiple named .pas projects (filesDir/projects/[name].pas),
  * switch between scenes, or start a fresh scene with any 2D Stage Aspect Ratio Preset.
  */
 object MultiProjectManager {
