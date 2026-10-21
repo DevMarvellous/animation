@@ -17,6 +17,7 @@ import com.animationapp.core.config.StudioPreferences
 import com.animationapp.core.diagnostics.CrashReporter
 import com.animationapp.core.profiler.PerformanceHud
 import com.animationapp.core.storage.CrashSafeAutosave
+import com.animationapp.core.storage.DiskSwapManager
 import com.animationapp.engine.brush.BrushPreset
 import com.animationapp.engine.brush.InputStabilizer
 import com.animationapp.engine.camera.Camera2DController
@@ -181,7 +182,7 @@ class AnimationCanvasView(
             if (!layer.isVisible) continue
 
             val cel = frame.getCel(lIdx)
-            if (cel.strokes.isEmpty() && cel.fillBitmap == null) continue
+            if (!cel.hasContent()) continue
 
             scratchCanvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
             renderCelOntoCanvas(scratchCanvas, cel, layer.isAlphaLocked)
@@ -193,7 +194,7 @@ class AnimationCanvasView(
     }
 
     private fun renderCelOntoCanvas(targetCanvas: Canvas, cel: LayerCel, isAlphaLocked: Boolean) {
-        cel.fillBitmap?.let { fillBmp ->
+        DiskSwapManager.restoreCelFromDiskIfNeeded(cel)?.let { fillBmp ->
             if (!fillBmp.isRecycled) {
                 targetCanvas.drawBitmap(fillBmp, 0f, 0f, null)
             }
@@ -882,6 +883,7 @@ class AnimationCanvasView(
         pausePlayback()
         lassoController.clearSelection()
         project.selectFrame(index)
+        DiskSwapManager.maintainHotFrameWindow(context, project)
         project.currentFrame.isCacheDirty = true
         LipSyncAudioEngine.playFrameScrubSlice(project.currentFrame.phonemeMarker)
         onStateChanged?.invoke()
@@ -892,6 +894,7 @@ class AnimationCanvasView(
         pausePlayback()
         lassoController.clearSelection()
         project.addBlankFrameAfterCurrent()
+        DiskSwapManager.maintainHotFrameWindow(context, project)
         project.currentFrame.isCacheDirty = true
         triggerAutosave()
         onStateChanged?.invoke()
@@ -902,6 +905,28 @@ class AnimationCanvasView(
         pausePlayback()
         lassoController.clearSelection()
         project.duplicateCurrentFrame()
+        DiskSwapManager.maintainHotFrameWindow(context, project)
+        project.currentFrame.isCacheDirty = true
+        triggerAutosave()
+        onStateChanged?.invoke()
+        invalidate()
+    }
+
+    fun linkActiveCelToNextFrame() {
+        pausePlayback()
+        lassoController.clearSelection()
+        project.linkActiveLayerToNextFrame()
+        DiskSwapManager.maintainHotFrameWindow(context, project)
+        project.currentFrame.isCacheDirty = true
+        triggerAutosave()
+        onStateChanged?.invoke()
+        invalidate()
+    }
+
+    fun unlinkActiveCelOnCurrentFrame() {
+        pausePlayback()
+        lassoController.clearSelection()
+        project.unlinkActiveLayerOnCurrentFrame()
         project.currentFrame.isCacheDirty = true
         triggerAutosave()
         onStateChanged?.invoke()
@@ -912,6 +937,7 @@ class AnimationCanvasView(
         pausePlayback()
         lassoController.clearSelection()
         project.deleteCurrentFrame()
+        DiskSwapManager.maintainHotFrameWindow(context, project)
         project.currentFrame.isCacheDirty = true
         triggerAutosave()
         onStateChanged?.invoke()
@@ -946,6 +972,7 @@ class AnimationCanvasView(
     }
 
     fun triggerAutosave() {
+        project.invalidateFramesSharingCel(project.activeCel)
         CrashSafeAutosave.saveAsync(context, project)
     }
 

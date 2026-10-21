@@ -108,6 +108,40 @@ class AnimationProject(
         return currentFrameIndex
     }
 
+    /**
+     * Phase 16: Links the active layer's Cel onto the next frame (creating a new frame if at the end)
+     * as a shared Symbol reference! Editing this layer in either frame updates all linked frames automatically.
+     */
+    fun linkActiveLayerToNextFrame(): Int {
+        val sharedCel = activeCel
+        sharedCel.isLinkedSymbol = true
+        val nextIdx = if (currentFrameIndex + 1 < frames.size) {
+            currentFrameIndex + 1
+        } else {
+            val newFrame = AnimationFrame(layerCount = layers.size)
+            frames.add(newFrame)
+            frames.lastIndex
+        }
+        frames[nextIdx].setSharedCel(activeLayerIndex, sharedCel)
+        currentFrameIndex = nextIdx
+        return currentFrameIndex
+    }
+
+    fun unlinkActiveLayerOnCurrentFrame() {
+        currentFrame.unlinkCel(activeLayerIndex)
+    }
+
+    fun invalidateFramesSharingCel(targetCel: LayerCel) {
+        for (i in 0 until frames.size) {
+            val f = frames[i]
+            for (cIdx in 0 until f.cels.size) {
+                if (f.cels[cIdx] === targetCel) {
+                    f.isCacheDirty = true
+                }
+            }
+        }
+    }
+
     fun deleteCurrentFrame(): Boolean {
         if (frames.size <= 1) {
             currentFrame.clearAll()

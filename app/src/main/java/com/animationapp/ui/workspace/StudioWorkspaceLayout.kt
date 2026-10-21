@@ -20,6 +20,7 @@ import com.animationapp.audio.LipSyncAudioEngine
 import com.animationapp.audio.LipSyncPhoneme
 import com.animationapp.core.config.StudioPreferences
 import com.animationapp.core.diagnostics.CrashReporter
+import com.animationapp.core.storage.DiskSwapManager
 import com.animationapp.engine.AnimationCanvasView
 import com.animationapp.engine.brush.BrushPreset
 import com.animationapp.engine.tools.Shape2DMode
@@ -410,7 +411,7 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
         }
 
         val btnDupFrame = createStudioButton("⧉ Clone") {
-            canvasView.duplicateCurrentFrame()
+            showCloneOrLinkCelDialog()
         }
 
         val btnDelFrame = createStudioButton("🗑 Del") {
@@ -629,9 +630,10 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
             val loopOutSuffix = if (proj.isLoopRangeEnabled && i == proj.loopEndFrame) "⟧" else ""
             val holdSuffix = if (frame.exposureHold > 1) " (x${frame.exposureHold})" else ""
             val dotSuffix = if (hasInk) "•" else ""
+            val linkSuffix = if (frame.hasLinkedSymbol()) "🔗" else ""
             val camSuffix = if (hasCam) "🎥" else ""
             val phSuffix = if (phoneme != LipSyncPhoneme.NONE) "[${phoneme.code}]" else ""
-            val pillLabel = "$loopInPrefix${i + 1}$dotSuffix$camSuffix$phSuffix$holdSuffix$loopOutSuffix"
+            val pillLabel = "$loopInPrefix${i + 1}$dotSuffix$linkSuffix$camSuffix$phSuffix$holdSuffix$loopOutSuffix"
 
             val pill = TextView(context).apply {
                 text = pillLabel
@@ -1232,6 +1234,25 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
             .show()
     }
 
+    private fun showCloneOrLinkCelDialog() {
+        val activeLayerName = canvasView.project.activeLayer.name
+        val options = arrayOf(
+            "⧉ Duplicate Whole Frame (Independent Copy of All Layers)",
+            "🔗 Link '$activeLayerName' Cel to Next Frame (Shared 2D Symbol — 0 Extra RAM!)",
+            "🔓 Unlink '$activeLayerName' Cel on Current Frame (Make Independent)"
+        )
+        AlertDialog.Builder(activity)
+            .setTitle("Clone Frame or Link 2D Symbol Cel")
+            .setItems(options) { _, which ->
+                when (which) {
+                    0 -> canvasView.duplicateCurrentFrame()
+                    1 -> canvasView.linkActiveCelToNextFrame()
+                    2 -> canvasView.unlinkActiveCelOnCurrentFrame()
+                }
+            }
+            .show()
+    }
+
     private fun showFpsPickerDialog() {
         val options = arrayOf(
             "8 FPS (Anime on 3s)",
@@ -1258,10 +1279,11 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
         val stats = buildString {
             appendLine("Live FPS: ${hud.currentFps}")
             appendLine("Heap Memory: ${hud.usedRamMb} MB / ${hud.maxRamMb} MB")
+            appendLine("Disk-Swapped Cold Cels: ${DiskSwapManager.swappedCelCount}")
             appendLine("Layers: ${proj.layers.size} (Active: ${proj.activeLayer.name})")
             appendLine("Total Frames: ${proj.frames.size} (Active Hold: ${proj.currentFrame.exposureHold}s)")
             appendLine("Active Brush: ${canvasView.activeBrushPreset.label}")
-            appendLine("Active Cel Strokes: ${proj.activeCel.strokes.size}")
+            appendLine("Active Cel Strokes: ${proj.activeCel.strokes.size} (Linked=${proj.activeCel.isLinkedSymbol})")
             appendLine("2D Camera Keyframes: ${canvasView.camera2D.keyframes.size}")
             appendLine("Viewport Zoom: ${(canvasView.viewport.zoomScale * 100).toInt()}%")
             appendLine(StudioPreferences.toDiagnosticSummary())

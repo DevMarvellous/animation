@@ -32,6 +32,31 @@ class AnimationFrame(
         return cels[layerIndex]
     }
 
+    fun setSharedCel(layerIndex: Int, sharedCel: LayerCel) {
+        while (cels.size <= layerIndex) {
+            cels.add(LayerCel())
+        }
+        sharedCel.isLinkedSymbol = true
+        cels[layerIndex] = sharedCel
+        isCacheDirty = true
+    }
+
+    fun unlinkCel(layerIndex: Int): LayerCel {
+        val current = getCel(layerIndex)
+        val uniqueCopy = current.duplicate()
+        uniqueCopy.isLinkedSymbol = false
+        cels[layerIndex] = uniqueCopy
+        isCacheDirty = true
+        return uniqueCopy
+    }
+
+    fun hasLinkedSymbol(): Boolean {
+        for (i in 0 until cels.size) {
+            if (cels[i].isLinkedSymbol) return true
+        }
+        return false
+    }
+
     val strokes: ArrayList<Stroke>
         get() = getCel(0).strokes
 
@@ -54,7 +79,7 @@ class AnimationFrame(
 
     fun hasAnyContent(): Boolean {
         for (i in 0 until cels.size) {
-            if (cels[i].strokes.isNotEmpty() || cels[i].fillBitmap != null) return true
+            if (cels[i].hasContent()) return true
         }
         return false
     }

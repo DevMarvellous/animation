@@ -13,13 +13,14 @@ import kotlin.math.atan2
 import kotlin.math.hypot
 
 /**
- * Zero-Allocation 2D Freehand Lasso Selection & Bounding Box Transform Tool.
+ * Zero-Allocation 2D Freehand Lasso Selection, Transform & 4-Point Mesh Cage Deform Tool (Phase 6 & Phase 17).
  *
  * Allows animators to:
  * 1. Draw a freehand lasso loop around 2D strokes on the active layer.
- * 2. Automatically select all strokes whose points fall inside the lasso polygon.
- * 3. Drag inside the bounding box to Move (Translate), drag corner handles to Scale,
- *    or drag the top handle to Rotate the selected 2D artwork in real time!
+ * 2. Drag inside the bounding box to Move (Translate).
+ * 3. Drag the Bottom-Right Blue Handle to Scale, or Top-Center Stem Handle to Rotate.
+ * 4. Drag any of the Amber Corner-Pin Handles (Top-Left, Top-Right, Bottom-Left) to apply a real-time
+ *    2D Bilinear Cage / Perspective Warp Deform (squash, stretch, skew, or perspective tilt)!
  */
 class LassoTransformController {
 
@@ -28,15 +29,18 @@ class LassoTransformController {
         DRAWING_LASSO,
         MOVING_SELECTION,
         SCALING_SELECTION,
-        ROTATING_SELECTION
+        ROTATING_SELECTION,
+        CORNER_PIN_WARP
     }
 
     val lassoPath = Path()
     val selectionBounds = RectF()
+    private val deformSourceBounds = RectF()
     val selectedStrokes = ArrayList<Stroke>(32)
 
     var dragMode: DragMode = DragMode.NONE
         private set
+    private var activeWarpCornerIndex = 0 // 0=TL, 1=TR, 2=BR, 3=BL
 
     private val lassoRegion = Region()
     private val clipRegion = Region(0, 0, 8192, 8192)
@@ -46,7 +50,7 @@ class LassoTransformController {
     private var lastDragX = 0f
     private var lastDragY = 0f
 
-    // Pre-allocated Paints for Lasso & Gizmo handles
+    // Pre-allocated Paints for Lasso, 3x3 Mesh Cage & Gizmo handles
     private val lassoPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.rgb(0, 210, 255)
         style = Paint.Style.STROKE
@@ -60,6 +64,13 @@ class LassoTransformController {
         strokeWidth = 2.5f
     }
 
+    private val meshGridPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(95, 255, 185, 40)
+        style = Paint.Style.STROKE
+        strokeWidth = 1.5f
+        pathEffect = DashPathEffect(floatArrayOf(6f, 6f), 0f)
+    }
+
     private val handleFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = Color.WHITE
         style = Paint.Style.FILL
@@ -71,8 +82,13 @@ class LassoTransformController {
         strokeWidth = 3f
     }
 
-    private val handleRadius = 16f
-    private val rotateHandleOffset = 48f
+    private val warpHandleFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.rgb(255, 175, 25)
+        style = Paint.Style.FILL
+    }
+
+    private val handleRadius = 15f
+    private val rotateHandleOffset = 46f
 
     fun hasSelection(): Boolean = selectedStrokes.isNotEmpty() && !selectionBounds.isEmpty
 
@@ -88,21 +104,40 @@ class LassoTransformController {
         lastDragY = stageY
 
         if (hasSelection()) {
-            // Check Rotate Handle (top center above selection box)
+            val hitRadius = handleRadius * 2.2f
+
+            // 1. Check Rotate Handle (top center above selection box)
             val rotX = selectionBounds.centerX()
             val rotY = selectionBounds.top - rotateHandleOffset
-            if (hypot(stageX - rotX, stageY - rotY) <= handleRadius * 2.2f) {
+            if (hypot(stageX - rotX, stageY - rotY) <= hitRadius) {
                 dragMode = DragMode.ROTATING_SELECTION
                 return
             }
 
-            // Check Bottom-Right Scale Handle
-            if (hypot(stageX - selectionBounds.right, stageY - selectionBounds.bottom) <= handleRadius * 2.2f) {
+            // 2. Check Bottom-Right Proportional Scale Handle
+            if (hypot(stageX - selectionBounds.right, stageY - selectionBounds.bottom) <= hitRadius) {
                 dragMode = DragMode.SCALING_SELECTION
                 return
             }
 
-            // Check inside Selection Box -> Move
+            // 3. Check Amber Corner-Pin Mesh Warp Handles (0 = TL, 1 = TR, 3 = BL)
+            if (hypot(stageX - selectionBounds.left, stageY - selectionBounds.top) <= hitRadius) {
+                dragMode = DragMode.CORNER_PIN_WARP
+                activeWarpCornerIndex = 0
+                return
+            }
+            if (hypot(stageX - selectionBounds.right, stageY - selectionBounds.top) <= hitRadius) {
+                dragMode = DragMode.CORNER_PIN_WARP
+                activeWarpCornerIndex = 1
+                return
+            }
+            if (hypot(stageX - selectionBounds.left, stageY - selectionBounds.bottom) <= hitRadius) {
+                dragMode = DragMode.CORNER_PIN_WARP
+                activeWarpCornerIndex = 3
+                return
+            }
+
+            // 4. Check inside Selection Box -> Move
             if (selectionBounds.contains(stageX, stageY)) {
                 dragMode = DragMode.MOVING_SELECTION
                 return
@@ -124,7 +159,7 @@ class LassoTransformController {
                 lassoPath.lineTo(stageX, stageY)
                 lastDragX = stageX
                 lastDragY = stageY
-                return false // Cache not dirty yet
+                return false
             }
 
             DragMode.MOVING_SELECTION -> {
@@ -133,7 +168,7 @@ class LassoTransformController {
                 applyMatrixToSelectedStrokes()
                 lastDragX = stageX
                 lastDragY = stageY
-                return true // Active layer cache needs redraw
+                return true
             }
 
             DragMode.SCALING_SELECTION -> {
@@ -169,6 +204,26 @@ class LassoTransformController {
                 return true
             }
 
+            DragMode.CORNER_PIN_WARP -> {
+                deformSourceBounds.set(selectionBounds)
+                selectionBounds.setEmpty()
+                for (i in 0 until selectedStrokes.size) {
+                    val s = selectedStrokes[i]
+                    s.applyCornerPinDeform(deformSourceBounds, activeWarpCornerIndex, dx, dy)
+                    if (selectionBounds.isEmpty) {
+                        selectionBounds.set(s.bounds)
+                    } else {
+                        selectionBounds.union(s.bounds)
+                    }
+                }
+                if (!selectionBounds.isEmpty) {
+                    selectionBounds.inset(-12f, -12f)
+                }
+                lastDragX = stageX
+                lastDragY = stageY
+                return true
+            }
+
             DragMode.NONE -> return false
         }
     }
@@ -194,7 +249,6 @@ class LassoTransformController {
             val s = layerStrokes[i]
             if (s.isEraser || s.pointCount == 0) continue
 
-            // Check if at least 1 sample point of the stroke lies inside the lasso region
             var inside = false
             val step = (s.pointCount / 8).coerceAtLeast(1)
             var p = 0
@@ -242,6 +296,16 @@ class LassoTransformController {
         }
 
         if (hasSelection()) {
+            // Draw 3x3 internal Mesh Cage Subdivision lines
+            val w3 = selectionBounds.width() / 3f
+            val h3 = selectionBounds.height() / 3f
+            for (k in 1..2) {
+                val gx = selectionBounds.left + w3 * k
+                val gy = selectionBounds.top + h3 * k
+                canvas.drawLine(gx, selectionBounds.top, gx, selectionBounds.bottom, meshGridPaint)
+                canvas.drawLine(selectionBounds.left, gy, selectionBounds.right, gy, meshGridPaint)
+            }
+
             // Draw selection bounding box
             canvas.drawRect(selectionBounds, boxPaint)
 
@@ -252,10 +316,14 @@ class LassoTransformController {
             canvas.drawCircle(cx, rotY, handleRadius, handleFillPaint)
             canvas.drawCircle(cx, rotY, handleRadius, handleStrokePaint)
 
-            // Draw Bottom-Right Scale Handle
+            // Draw Bottom-Right Scale Handle (White/Blue)
             canvas.drawCircle(selectionBounds.right, selectionBounds.bottom, handleRadius, handleFillPaint)
             canvas.drawCircle(selectionBounds.right, selectionBounds.bottom, handleRadius, handleStrokePaint)
+
+            // Draw 3 Amber Corner-Pin Warp Handles (TL, TR, BL)
+            canvas.drawCircle(selectionBounds.left, selectionBounds.top, handleRadius * 0.85f, warpHandleFillPaint)
+            canvas.drawCircle(selectionBounds.right, selectionBounds.top, handleRadius * 0.85f, warpHandleFillPaint)
+            canvas.drawCircle(selectionBounds.left, selectionBounds.bottom, handleRadius * 0.85f, warpHandleFillPaint)
         }
     }
 }
-

@@ -21,16 +21,30 @@ enum class LayerBlendMode(val label: String, val porterDuffMode: PorterDuff.Mode
 /**
  * Represents a single Cel (the content of one Layer at one Frame).
  *
- * Supports both vector strokes and optional raster flood-fill bitmaps,
- * plus per-cel Undo/Redo stacks.
+ * Supports:
+ * - Vector strokes + optional raster flood-fill bitmaps
+ * - Phase 16 Linked Cels / Reusable 2D Symbols (`isLinkedSymbol`)
+ * - Phase 18 Virtual Memory Disk Swap (`celId`, `swappedDiskPath`)
  */
 class LayerCel {
+    companion object {
+        private var nextIdCounter = 1
+    }
+
+    val celId: Int = nextIdCounter++
+    var isLinkedSymbol: Boolean = false
+    var swappedDiskPath: String? = null
+
     val strokes = ArrayList<Stroke>(24)
     private val redoStack = ArrayList<Stroke>(12)
 
     // Optional flood-fill bitmap overlay for bucket fills on this cel
     var fillBitmap: Bitmap? = null
     var isCacheDirty: Boolean = true
+
+    fun hasContent(): Boolean {
+        return strokes.isNotEmpty() || fillBitmap != null || swappedDiskPath != null
+    }
 
     fun addStroke(stroke: Stroke) {
         strokes.add(stroke)
@@ -51,6 +65,7 @@ class LayerCel {
         if (fillBitmap != null) {
             fillBitmap?.recycle()
             fillBitmap = null
+            swappedDiskPath = null
             isCacheDirty = true
             return true
         }
@@ -70,6 +85,7 @@ class LayerCel {
         redoStack.clear()
         fillBitmap?.let { if (!it.isRecycled) it.recycle() }
         fillBitmap = null
+        swappedDiskPath = null
         isCacheDirty = true
     }
 
@@ -83,6 +99,7 @@ class LayerCel {
                 copy.fillBitmap = bmp.copy(bmp.config ?: Bitmap.Config.ARGB_8888, true)
             }
         }
+        copy.swappedDiskPath = swappedDiskPath
         copy.isCacheDirty = true
         return copy
     }
@@ -90,14 +107,6 @@ class LayerCel {
 
 /**
  * Represents an animation track Layer (e.g., "Line Art", "Colors", "Rough Sketch").
- *
- * Includes pro studio flags:
- * - isVisible: Hide/show layer
- * - isLocked: Prevent accidental drawing
- * - isAlphaLocked: Only paint inside existing opaque pixels on this layer
- * - isReferenceLayer: Used as boundary map for Smart Fill Bucket on other layers
- * - opacity: 0.0f to 1.0f
- * - blendMode: Normal, Multiply, Screen, Add, Overlay
  */
 class AnimationLayer(
     var name: String,

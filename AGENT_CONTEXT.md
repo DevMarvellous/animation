@@ -17,7 +17,7 @@
 ---
 
 ### 2. Current Project Status & Total 25-Phase (3-Tier) Master Roadmap
-- **Total Phases Planned**: **25 Phases across 3 Tiers** (Phases 1 through 15 are now **COMPLETED**!).
+- **Total Phases Planned**: **25 Phases across 3 Tiers** (Phases 1 through 18 — **ALL of Tier 1 & Tier 2** — are now **COMPLETED**!).
 
 #### Tier 1: Core 2D Studio Engine (Phases 1–10 — ALL COMPLETED!)
   - **Phase 1 (Done)**: Zero-bloat Kotlin setup & Cloud APK GitHub Actions pipeline.
@@ -31,15 +31,15 @@
   - **Phase 9 (Done)**: 2D Lip-Sync Phoneme Mouth Chart Markers (`A/I`, `E`, `O`, `U/W`, `M/B/P`, `F/V`, `L/TH`, `🥁 Beat`), Real-Time Formant PCM Audio Scrubbing (`👄 LipSync`), & Flipbook Quick-Roll Scrubber (`📖 Roll`).
   - **Phase 10 (Done)**: Transparent 2D Sprite Sheet PNG + JSON Coordinate Atlas Exporter (`🎬 Export` -> Sprite Sheet) & Floating Draggable 2D Reference Pinboard (`📌 Ref`).
 
-#### Tier 2: Pro Drawing, Coloring & Cel Mastery (Phases 11–18)
+#### Tier 2: Pro Drawing, Coloring & Cel Mastery (Phases 11–18 — ALL COMPLETED!)
   - **Phase 11 (Done)**: 5 Pluggable 2D Brush Presets (`✒ G-Pen`, `✏ Pencil Sketch`, `🖍 Chisel Marker`, `💨 Soft Airbrush`, `👾 Pixel Art 1-Bit`).
   - **Phase 12 (Done)**: Full HSV Color Wheel (`🎨 Color`), Brightness & Opacity Sliders, Hex `#RRGGBB` Input, & Custom Saved Character Swatch Palettes (`ColorPaletteStudio.kt`).
   - **Phase 13 (Done)**: Geometric 2D Shape Guides (`📏 Straight Line`, `▭ Rectangle`, `◯ Circle/Ellipse`, `📐 Perspective Vanishing Ray`) & Interactive 1/2-Point Perspective Horizon + Draggable `VP1` / `VP2` Rulers (`ShapeAndPerspectiveController.kt`).
   - **Phase 14 (Done)**: Morphological Gap-Closing Paint Bucket (`SmartFloodFillEngine.kt` with separable 1D dilation + margin reclaim so 2px–16px open line-art gaps are sealed automatically).
   - **Phase 15 (Done)**: Timeline Loop Play Ranges (`⟦ Set In` / `Set Out ⟧` Loop Brackets via `🔁 Loop`) & Vertical Exposure Sheet (X-Sheet) Table Inspector.
-  - **Phase 16 (Next)**: Linked Cels / Reusable 2D Symbols (edit one master cel and update all linked instances).
-  - **Phase 17 (Next)**: 4-Point Perspective Distort & 3x3 Mesh Warp Grid inside the 2D Lasso Tool.
-  - **Phase 18 (Next)**: `DiskSwapManager` Virtual Memory Frame Streaming (allows 1,000+ frame movies on 2GB RAM phones by streaming compressed cels to disk).
+  - **Phase 16 (Done)**: Linked Cels / Reusable 2D Symbols (`🔗 Link` inside `⧉ Clone` menu — shares a master `LayerCel` across frames with 0 extra RAM, updating all linked frames live when edited, plus `🔓 Unlink`).
+  - **Phase 17 (Done)**: 4-Point Perspective Corner-Pin & 3x3 Bilinear Mesh Cage Deform inside the 2D Lasso Tool (`LassoTransformController.kt` & `Stroke.applyCornerPinDeform`).
+  - **Phase 18 (Done)**: `DiskSwapManager.kt` Virtual Memory Frame Streaming (maintains a hot window around `currentFrameIndex` and streams cold `fillBitmap`s to `cacheDir/cel_swap/` to prevent Out-Of-Memory crashes on 2GB RAM phones).
 
 #### Tier 3: Cut-Out Rigging, Graph Editor, VFX & Pro Studio Exports (Phases 19–25)
   - **Phase 19**: Per-Layer Keyframe Tweening & Custom Bezier Velocity Curve Graph Editor.
@@ -65,7 +65,8 @@ com.animationapp/
 │   ├── config/StudioPreferences.kt        # Live in-app UX comfort tuner (Palm Rejection, Turbo Mode, Grid)
 │   ├── diagnostics/CrashReporter.kt       # In-app crash catcher & live log viewer with clipboard copy
 │   ├── profiler/PerformanceHud.kt         # FPS, frame-time (ms), RAM heap, frame & zoom counter
-│   └── storage/CrashSafeAutosave.kt       # Background atomic binary .pas (PAS2) autosave & restoration
+│   ├── storage/CrashSafeAutosave.kt       # Background atomic binary .pas (PAS2) autosave & restoration
+│   └── storage/DiskSwapManager.kt         # Virtual Memory cold-cel disk swapper for 2GB RAM phones
 ├── model/
 │   ├── AnimationProject.kt                # Multi-layer stack, FPS, background color, frame list
 │   ├── AnimationFrame.kt                  # Per-layer LayerCels, exposure hold (1s/2s/3s/4s), phoneme marker
@@ -105,10 +106,13 @@ com.animationapp/
   - Silenced all false-positive offline VS Code YAML/GitHub Actions diagnostics on `.github/workflows/build-apk.yml` via `.vscode/settings.json` (`"files.associations": { "*.yml": "plaintext" }`) and `shell: bash` workflow steps.
   - Built `Camera2DController.kt` (`🎥 2D Cam`), `VectorStrokeCutter.kt` (`✂ Trim`), and `StudioPreferences.kt` (`🎛 Tune UX`).
   - Built **Phase 9, 10 & 11**: `BrushPreset.kt` (5 pro 2D brushes), `LipSyncAudioEngine.kt` (Preston Blair 2D Lip-Sync Phoneme mouth markers + real-time PCM formant audio scrub), Flipbook Quick-Roll Wheel (`📖 Roll`), `SpriteSheetExporter.kt` (transparent PNG + JSON atlas exporter), and `ReferencePinboardView.kt` (`📌 Ref`).
-- **2026-10-21 (Session 4 - Phases 12, 13, 14 & 15)**:
+- **2026-10-21 (Session 4 - Phases 12 through 18 — Tier 2 Completed!)**:
   - Built **Phase 12 (`ColorPaletteStudio.kt`)**: Pre-rendered 2D HSV Color Wheel (`🎨 Color`), Brightness & Opacity sliders, Hex `#RRGGBB` input, and persistent Custom Saved Character Swatches.
   - Built **Phase 13 (`ShapeAndPerspectiveController.kt`)**: 2D Geometric Shape Tool (`📏 Straight Line`, `▭ Rectangle`, `◯ Circle/Ellipse`, `📐 Perspective Vanishing Ray`) + Interactive 2-Point Perspective Horizon & Draggable `VP1` / `VP2` Rulers.
   - Built **Phase 14 (`SmartFloodFillEngine.kt`)**: Morphological Gap-Closing Paint Bucket (separable 1D horizontal/vertical dilation + margin reclaim so 2px–16px open line-art gaps are sealed automatically).
   - Built **Phase 15 (`AnimationProject.kt` + `StudioWorkspaceLayout.kt`)**: Timeline Loop Play Ranges (`⟦ Set In` / `Set Out ⟧` via `🔁 Loop`) & Vertical Exposure Sheet (X-Sheet) Table Inspector.
+  - Built **Phase 16 (`AnimationLayer.kt` + `AnimationFrame.kt` + `AnimationProject.kt`)**: Linked Cels / Reusable 2D Symbols (`🔗 Link` inside `⧉ Clone` menu — shares a master `LayerCel` across frames with 0 extra RAM, updating all linked frames live when edited, plus `🔓 Unlink`).
+  - Built **Phase 17 (`LassoTransformController.kt` + `Stroke.kt`)**: 4-Point Perspective Corner-Pin & 3x3 Bilinear Mesh Cage Deform inside the 2D Lasso Tool (`applyCornerPinDeform`).
+  - Built **Phase 18 (`DiskSwapManager.kt`)**: Virtual Memory Frame Streaming (maintains a hot window around `currentFrameIndex` and streams cold `fillBitmap`s to `cacheDir/cel_swap/` to prevent Out-Of-Memory crashes on 2GB RAM phones).
 
 

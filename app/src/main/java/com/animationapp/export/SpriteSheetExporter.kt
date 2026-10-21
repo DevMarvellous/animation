@@ -12,6 +12,7 @@ import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
 import com.animationapp.core.diagnostics.CrashReporter
+import com.animationapp.core.storage.DiskSwapManager
 import com.animationapp.model.AnimationProject
 import com.animationapp.model.LayerCel
 import com.animationapp.model.Stroke
@@ -90,7 +91,7 @@ object SpriteSheetExporter {
                         val layer = project.layers[lIdx]
                         if (!layer.isVisible) continue
                         val cel = frame.getCel(lIdx)
-                        if (cel.strokes.isEmpty() && cel.fillBitmap == null) continue
+                        if (!cel.hasContent()) continue
 
                         scratchCanvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
                         renderCel(scratchCanvas, cel, layer.isAlphaLocked, strokePaint, eraserXfer, alphaLockXfer)
@@ -135,7 +136,7 @@ object SpriteSheetExporter {
         eraserXfer: PorterDuffXfermode,
         alphaLockXfer: PorterDuffXfermode
     ) {
-        cel.fillBitmap?.let { bmp ->
+        DiskSwapManager.restoreCelFromDiskIfNeeded(cel)?.let { bmp ->
             if (!bmp.isRecycled) targetCanvas.drawBitmap(bmp, 0f, 0f, null)
         }
         val strokes = cel.strokes
