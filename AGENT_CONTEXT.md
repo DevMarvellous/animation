@@ -147,6 +147,7 @@ com.animationapp/
   - **Display Cutout Notch Support (`MainActivity.kt`)**: `LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES` for true edge-to-edge drawing past camera punch-holes and notches.
   - **Screen Keep-Awake (`MainActivity.kt`)**: `FLAG_KEEP_SCREEN_ON` so screen never dims or locks during drawing or animating sessions.
   - **Lifecycle Safe Exit & Immediate Autosave (`MainActivity.kt`)**: Immediate atomic autosave in `onPause()` and safe exit confirmation dialog in `onBackPressed()`.
+  - **Verified Clean Cloud Build (`39615474065` - Commit `18b609e`)**: Completed 100% **SUCCESS** with `ProAnimationStudio-Release-APK` (102 KB, ID: `12350974604`) and `ProAnimationStudio-Debug-APK` (1,000 KB, ID: `12351279439`).
 
 
 
