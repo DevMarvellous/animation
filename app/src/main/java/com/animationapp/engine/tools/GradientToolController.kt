@@ -184,7 +184,7 @@ class GradientToolController {
         bmpCanvas.save()
         // If Lasso polygon exists, clip gradient strictly inside lasso area
         if (lassoController != null && lassoController.hasSelection()) {
-            bmpCanvas.clipPath(lassoController.selectionPath)
+            bmpCanvas.clipPath(lassoController.lassoPath)
         }
         bmpCanvas.drawRect(0f, 0f, project.stageWidth.toFloat(), project.stageHeight.toFloat(), fillPaint)
         bmpCanvas.restore()

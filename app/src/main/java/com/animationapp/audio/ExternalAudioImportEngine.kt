@@ -186,7 +186,7 @@ object ExternalAudioImportEngine {
                         var maxSample = 0
                         var count = 0
                         while (outputBuf.remaining() >= 2 && count < shortBuffer.size) {
-                            val s = abs(outputBuf.short.toInt())
+                            val s = abs(outputBuf.getShort().toInt())
                             if (s > maxSample) maxSample = s
                             count++
                         }
