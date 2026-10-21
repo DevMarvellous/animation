@@ -21,10 +21,6 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Accept Android SDK Licenses
-        run: |
-          yes | sdkmanager --licenses || true
-
       - name: Install Gradle 8.10.2 & Build APKs
         shell: bash
         run: |
@@ -34,8 +30,9 @@ jobs:
             curl -sL "https://services.gradle.org/distributions/gradle-${GRADLE_VERSION}-bin.zip" -o /tmp/gradle.zip
             unzip -q /tmp/gradle.zip -d "$HOME/.gradle-dist"
           fi
-          export PATH="$HOME/.gradle-dist/gradle-${GRADLE_VERSION}/bin:$PATH"
-          export ANDROID_HOME=/usr/local/lib/android/sdk
+          export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          export PATH="$HOME/.gradle-dist/gradle-${GRADLE_VERSION}/bin:$ANDROID_HOME/cmdline-tools/latest/bin:$PATH"
+          yes | sdkmanager --licenses || true
           gradle assembleDebug --stacktrace --no-daemon
           gradle assembleRelease --stacktrace --no-daemon || true
 

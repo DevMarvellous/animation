@@ -40,12 +40,6 @@ android {
 
     kotlinOptions {
         jvmTarget = "17"
-        // Compiler optimizations for performance-critical loops
-        freeCompilerArgs += listOf(
-            "-Xno-param-assertions",
-            "-Xno-call-assertions",
-            "-Xno-receiver-assertions"
-        )
     }
 }
 
