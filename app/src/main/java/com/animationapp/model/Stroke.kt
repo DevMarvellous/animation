@@ -166,6 +166,17 @@ class Stroke(
         }
     }
 
+    fun assignPathWithPoints(path: Path, sampledPoints: FloatArray, count: Int, pathBounds: RectF) {
+        pointData = sampledPoints.copyOf(count * 3)
+        pointCount = count
+        renderPath.set(path)
+        bounds.set(pathBounds)
+        if (count > 0) {
+            lastX = sampledPoints[(count - 1) * 3]
+            lastY = sampledPoints[(count - 1) * 3 + 1]
+        }
+    }
+
     fun getX(index: Int): Float = pointData[index * 3]
     fun getY(index: Int): Float = pointData[index * 3 + 1]
     fun getPressure(index: Int): Float = pointData[index * 3 + 2]

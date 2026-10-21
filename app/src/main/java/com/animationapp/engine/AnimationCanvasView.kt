@@ -1,5 +1,6 @@
 package com.animationapp.engine
 
+import android.app.Activity
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
@@ -11,6 +12,7 @@ import android.graphics.RectF
 import android.os.SystemClock
 import android.view.MotionEvent
 import android.view.View
+import com.animationapp.audio.ExternalAudioImportEngine
 import com.animationapp.audio.LipSyncAudioEngine
 import com.animationapp.core.config.StudioConfig
 import com.animationapp.core.config.StudioPreferences
@@ -24,10 +26,12 @@ import com.animationapp.engine.camera.Camera2DController
 import com.animationapp.engine.canvas.ViewportController
 import com.animationapp.engine.onion.OnionSkinRenderer
 import com.animationapp.engine.rigging.Skeleton2DController
+import com.animationapp.engine.tools.GradientToolController
 import com.animationapp.engine.tools.LassoTransformController
 import com.animationapp.engine.tools.ShapeAndPerspectiveController
 import com.animationapp.engine.tools.SmartFloodFillEngine
 import com.animationapp.engine.tools.StudioToolType
+import com.animationapp.engine.tools.TextToolController
 import com.animationapp.engine.tools.VectorStrokeCutter
 import com.animationapp.engine.vfx.LayerVfxEngine
 import com.animationapp.model.AnimationLayer
@@ -55,6 +59,8 @@ class AnimationCanvasView(
     val shapeController = ShapeAndPerspectiveController(project.stageWidth, project.stageHeight)
     val skeletonController = Skeleton2DController()
     val camera2D = Camera2DController()
+    val gradientController = GradientToolController()
+    val textController = TextToolController()
     val performanceHud = PerformanceHud()
 
     // Active Tool & Brush Settings
@@ -406,6 +412,11 @@ class AnimationCanvasView(
             canvas.drawLine(centerX, 0f, centerX, project.stageHeight.toFloat(), symmetryGuidePaint)
         }
 
+        // 11b. Draw Phase 26 2D Gradient Tool interactive drag overlay
+        if (activeTool == StudioToolType.GRADIENT && gradientController.isDragging) {
+            gradientController.drawInteractiveOverlay(canvas)
+        }
+
         canvas.restore()
 
         // 12. Draw live Performance HUD in top-left
@@ -658,6 +669,53 @@ class AnimationCanvasView(
                     triggerAutosave()
                     onStateChanged?.invoke()
                     invalidate()
+                }
+            }
+            return true
+        }
+
+        // Handle Phase 26: 2D Linear & Radial Gradient Tool (`🌈 Gradient`)
+        if (activeTool == StudioToolType.GRADIENT) {
+            when (action) {
+                MotionEvent.ACTION_DOWN -> {
+                    gradientController.onTouchDown(stageX, stageY, brushColor)
+                    invalidate()
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    gradientController.onTouchMove(stageX, stageY)
+                    invalidate()
+                }
+                MotionEvent.ACTION_UP -> {
+                    gradientController.onTouchUp(stageX, stageY, project, lassoController) {
+                        triggerAutosave()
+                        onStateChanged?.invoke()
+                        invalidate()
+                    }
+                }
+                MotionEvent.ACTION_CANCEL -> {
+                    gradientController.cancelDrag()
+                    invalidate()
+                }
+            }
+            return true
+        }
+
+        // Handle Phase 26: 2D Cartoon Text & Onomatopoeia Tool (`🔤 Text`)
+        if (activeTool == StudioToolType.TEXT) {
+            if (action == MotionEvent.ACTION_UP) {
+                val act = context as? Activity
+                if (act != null) {
+                    textController.showTextDialog(
+                        activity = act,
+                        stageX = stageX,
+                        stageY = stageY,
+                        project = project,
+                        primaryColor = brushColor
+                    ) {
+                        triggerAutosave()
+                        onStateChanged?.invoke()
+                        invalidate()
+                    }
                 }
             }
             return true
@@ -984,9 +1042,11 @@ class AnimationCanvasView(
         currentHoldTick = 0
         if (isPlaying) {
             lastPlaybackStepTimeMs = SystemClock.uptimeMillis()
+            ExternalAudioImportEngine.startPlayback(project.currentFrameIndex, project.fps)
             LipSyncAudioEngine.playFrameScrubSlice(project.currentFrame.phonemeMarker)
             postInvalidateOnAnimation()
         } else {
+            ExternalAudioImportEngine.pausePlayback()
             project.currentFrame.isCacheDirty = true
             invalidate()
         }
@@ -997,6 +1057,7 @@ class AnimationCanvasView(
         if (isPlaying) {
             isPlaying = false
             currentHoldTick = 0
+            ExternalAudioImportEngine.pausePlayback()
             project.currentFrame.isCacheDirty = true
             onStateChanged?.invoke()
             invalidate()
@@ -1009,6 +1070,7 @@ class AnimationCanvasView(
         project.selectFrame(index)
         DiskSwapManager.maintainHotFrameWindow(context, project)
         project.currentFrame.isCacheDirty = true
+        ExternalAudioImportEngine.scrubToFrame(index, project.fps)
         LipSyncAudioEngine.playFrameScrubSlice(project.currentFrame.phonemeMarker)
         onStateChanged?.invoke()
         invalidate()
@@ -1160,6 +1222,7 @@ class AnimationCanvasView(
     }
 
     fun releaseMemory() {
+        ExternalAudioImportEngine.release()
         compositeCacheBitmap?.let { if (!it.isRecycled) it.recycle() }
         scratchLayerBitmap?.let { if (!it.isRecycled) it.recycle() }
         compositeCacheBitmap = null

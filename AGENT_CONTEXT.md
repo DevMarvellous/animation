@@ -148,6 +148,10 @@ com.animationapp/
   - **Screen Keep-Awake (`MainActivity.kt`)**: `FLAG_KEEP_SCREEN_ON` so screen never dims or locks during drawing or animating sessions.
   - **Lifecycle Safe Exit & Immediate Autosave (`MainActivity.kt`)**: Immediate atomic autosave in `onPause()` and safe exit confirmation dialog in `onBackPressed()`.
   - **Verified Clean Cloud Build (`39615474065` - Commit `18b609e`)**: Completed 100% **SUCCESS** with `ProAnimationStudio-Release-APK` (102 KB, ID: `12350974604`) and `ProAnimationStudio-Debug-APK` (1,000 KB, ID: `12351279439`).
+- **2026-10-21 (Session 8 - Phase 26 Expansion Trio: Gradient Tool, Real Audio Import, & Cartoon Text)**:
+  - **Linear & Radial 2D Gradient Tool (`GradientToolController.kt`)**: Hardware GPU shader tool (`🌈 Grad`) supporting 2-point angle linear and center-radius radial gradients. Supports Lasso polygon boundary clipping, Alpha-Lock cel shading (`SRC_ATOP`), and bakes directly into `LayerCel.fillBitmap` with zero heap bloat and full exporter sync.
+  - **Real External Audio Import & Dialogue Sync (`ExternalAudioImportEngine.kt`)**: Uses Android's native `MediaExtractor` and `MediaCodec` to decode `.mp3`, `.wav`, `.m4a`, `.aac` into a downsampled acoustic amplitude envelope (~800 bytes RAM for 200 frames). Plugs directly into `AnimationFrame.audioAmplitude` so timeline pills display true voice waveforms, auto-assigns Preston Blair mouth phonemes, and synchronizes real-time `MediaPlayer` audio playback and frame scrubbing.
+  - **2D Cartoon Text & Onomatopoeia Tool (`TextToolController.kt`)**: Converts text ("POW!", "BOOM!", dialogue subtitles, titles) into first-class vector `Stroke`s via `Paint.getTextPath` and dense `PathMeasure` contour sampling. Fully compatible with Lasso transforms, 4-Point Perspective Corner-Pin, and 3x3 Mesh Cage deform.
 
 
 

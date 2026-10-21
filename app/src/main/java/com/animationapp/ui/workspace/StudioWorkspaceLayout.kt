@@ -2,8 +2,10 @@ package com.animationapp.ui.workspace
 
 import android.app.Activity
 import android.app.AlertDialog
+import android.content.Intent
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
+import android.net.Uri
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.MotionEvent
@@ -17,6 +19,7 @@ import android.widget.ScrollView
 import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
+import com.animationapp.audio.ExternalAudioImportEngine
 import com.animationapp.audio.LipSyncAudioEngine
 import com.animationapp.audio.LipSyncPhoneme
 import com.animationapp.audio.VoiceoverWaveformEngine
@@ -28,6 +31,7 @@ import com.animationapp.core.storage.MultiProjectManager
 import com.animationapp.core.storage.StagePaperPreset
 import com.animationapp.engine.AnimationCanvasView
 import com.animationapp.engine.brush.BrushPreset
+import com.animationapp.engine.tools.GradientType
 import com.animationapp.engine.tools.Shape2DMode
 import com.animationapp.engine.tools.StudioToolType
 import com.animationapp.engine.tween.TweenEasingType
@@ -67,6 +71,7 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
     private lateinit var symBtn: TextView
     private lateinit var camBtn: TextView
     private lateinit var lipSyncBtn: TextView
+    private lateinit var audioBtn: TextView
     private lateinit var refPinBtn: TextView
     private lateinit var pieMenuBtn: TextView
     private lateinit var brushBtn: TextView
@@ -187,6 +192,10 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
             showLipSyncPhonemeDialog()
         }
 
+        audioBtn = createStudioButton("🎵 Audio") {
+            showAudioStudioDialog()
+        }
+
         refPinBtn = createStudioButton("📌 Ref") {
             val nowVisible = (referencePinboard.visibility != View.VISIBLE)
             referencePinboard.visibility = if (nowVisible) View.VISIBLE else View.GONE
@@ -237,7 +246,7 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
         }
 
         listOf(
-            btnUndo, btnRedo, sceneBtn, layersBtn, onionBtn, symBtn, camBtn, lipSyncBtn, refPinBtn,
+            btnUndo, btnRedo, sceneBtn, layersBtn, onionBtn, symBtn, camBtn, lipSyncBtn, audioBtn, refPinBtn,
             pieMenuBtn, mirrorBtn, btnFit, fpsBtn, brushBtn, colorWheelBtn, btnTuneUx, exportBtn, btnHandMode, btnDiag
         ).forEach { btn ->
             val lp = LinearLayout.LayoutParams(
@@ -290,6 +299,18 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
             showLayerTweenAndGraphDialog()
         }
         val btnBucket = createStudioButton("🪣 Fill") { selectTool(StudioToolType.FILL_BUCKET) }
+        val btnGradient = createStudioButton("🌈 Grad") {
+            if (canvasView.activeTool == StudioToolType.GRADIENT) {
+                showGradientOptionsDialog()
+            } else {
+                selectTool(StudioToolType.GRADIENT)
+                Toast.makeText(activity, "Drag across canvas to fill gradient (tap Grad again for options)", Toast.LENGTH_SHORT).show()
+            }
+        }
+        val btnText = createStudioButton("🔤 Text") {
+            selectTool(StudioToolType.TEXT)
+            Toast.makeText(activity, "Tap anywhere on stage to place cartoon text", Toast.LENGTH_SHORT).show()
+        }
         val btnPicker = createStudioButton("💧 Pick") { selectTool(StudioToolType.EYEDROPPER) }
         val btnCamTool = createStudioButton("🎥 Cam") { selectTool(StudioToolType.CAMERA_2D) }
         val btnShift = createStudioButton("💡 Shift") { selectTool(StudioToolType.SHIFT_TRACE) }
@@ -304,6 +325,8 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
             StudioToolType.BONE_RIG to btnRig,
             StudioToolType.LAYER_TWEEN to btnTween,
             StudioToolType.FILL_BUCKET to btnBucket,
+            StudioToolType.GRADIENT to btnGradient,
+            StudioToolType.TEXT to btnText,
             StudioToolType.EYEDROPPER to btnPicker,
             StudioToolType.CAMERA_2D to btnCamTool,
             StudioToolType.SHIFT_TRACE to btnShift,
@@ -317,7 +340,7 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
 
         listOf(
             btnPen, btnEraser, btnShapes, btnCutter, btnLasso, btnRig, btnTween,
-            btnBucket, btnPicker, btnCamTool, btnShift, btnPan
+            btnBucket, btnGradient, btnText, btnPicker, btnCamTool, btnShift, btnPan
         ).forEach { btn ->
             val lp = LinearLayout.LayoutParams(dp(74f), dp(29f)).apply {
                 bottomMargin = dp(4f)
@@ -819,6 +842,10 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
         val phoneme = proj.currentFrame.phonemeMarker
         lipSyncBtn.text = if (phoneme != LipSyncPhoneme.NONE) "👄 ${phoneme.code}" else "👄 LipSync"
         styleButton(lipSyncBtn, isHighlighted = (phoneme != LipSyncPhoneme.NONE), accentColor = Color.rgb(235, 70, 150))
+
+        val hasAudio = ExternalAudioImportEngine.hasAudio()
+        audioBtn.text = if (hasAudio) "🎵 Audio [ON]" else "🎵 Audio"
+        styleButton(audioBtn, isHighlighted = hasAudio, accentColor = Color.rgb(20, 210, 160))
 
         styleButton(
             refPinBtn,
@@ -1910,6 +1937,150 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
             appendLine(StudioPreferences.toDiagnosticSummary())
         }
         CrashReporter.showLiveDiagnosticsDialog(activity, stats)
+    }
+
+    companion object {
+        const val REQUEST_CODE_AUDIO = 7001
+    }
+
+    private fun showGradientOptionsDialog() {
+        val controller = canvasView.gradientController
+        val root = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20f), dp(14f), dp(20f), dp(10f))
+        }
+
+        val typeTitle = TextView(context).apply {
+            text = "Gradient Geometry Mode:"
+            setTextColor(Color.WHITE)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+        }
+        root.addView(typeTitle)
+
+        val row = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(6f), 0, dp(10f))
+        }
+        GradientType.values().forEach { type ->
+            val isSelected = (controller.gradientType == type)
+            val btn = createStudioButton("${type.icon} ${type.label}") {
+                controller.gradientType = type
+                Toast.makeText(activity, "Set to ${type.label}", Toast.LENGTH_SHORT).show()
+            }
+            styleButton(btn, isHighlighted = isSelected, accentColor = Color.rgb(0, 210, 255))
+            row.addView(btn, LinearLayout.LayoutParams(0, dp(36f), 1f).apply { marginEnd = dp(6f) })
+        }
+        root.addView(row)
+
+        val btnSwap = createStudioButton("⇄ Swap Start & End Colors") {
+            val tmp = controller.startColor
+            controller.startColor = controller.endColor
+            controller.endColor = tmp
+            Toast.makeText(activity, "Colors swapped", Toast.LENGTH_SHORT).show()
+        }
+        root.addView(btnSwap, LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, dp(36f)).apply { bottomMargin = dp(6f) })
+
+        val btnTrans = createStudioButton("☁ Make End Color Transparent (Soft Shade)") {
+            val c = controller.startColor
+            controller.endColor = Color.argb(0, Color.red(c), Color.green(c), Color.blue(c))
+            Toast.makeText(activity, "End color set to soft fade", Toast.LENGTH_SHORT).show()
+        }
+        root.addView(btnTrans, LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, dp(36f)))
+
+        AlertDialog.Builder(activity)
+            .setTitle("🌈 2D Gradient Tool Settings")
+            .setView(root)
+            .setPositiveButton("Done", null)
+            .show()
+    }
+
+    private fun showAudioStudioDialog() {
+        val hasAudio = ExternalAudioImportEngine.hasAudio()
+        val durationSec = (ExternalAudioImportEngine.audioDurationMs / 1000f)
+        val statusText = if (hasAudio) "🟢 Audio Track Active (${durationSec}s)" else "⚪ No external audio track loaded"
+
+        val options = if (hasAudio) {
+            arrayOf(
+                "📂 Import / Replace Audio File (.mp3, .wav, .m4a)",
+                "▶ Play Synchronized Audio Preview",
+                "👄 Auto-Lip-Sync to Voice Waveform",
+                "❌ Remove Audio Track"
+            )
+        } else {
+            arrayOf(
+                "📂 Import External Audio File (.mp3, .wav, .m4a)",
+                "👄 Generate Procedural Voiceover Waveform"
+            )
+        }
+
+        AlertDialog.Builder(activity)
+            .setTitle("🎵 Audio & Dialogue Studio\n$statusText")
+            .setItems(options) { _, which ->
+                if (hasAudio) {
+                    when (which) {
+                        0 -> launchAudioPicker()
+                        1 -> {
+                            ExternalAudioImportEngine.startPlayback(canvasView.project.currentFrameIndex, canvasView.project.fps)
+                            Toast.makeText(activity, "Playing audio...", Toast.LENGTH_SHORT).show()
+                        }
+                        2 -> {
+                            VoiceoverWaveformEngine.autoGenerateDialogueWaveformAndMouths(canvasView.project)
+                            refreshUiState()
+                            canvasView.invalidate()
+                            Toast.makeText(activity, "Mapped voice amplitudes to 2D mouth markers", Toast.LENGTH_SHORT).show()
+                        }
+                        3 -> {
+                            ExternalAudioImportEngine.removeAudio(canvasView.project)
+                            refreshUiState()
+                            canvasView.invalidate()
+                            Toast.makeText(activity, "Audio track removed", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                } else {
+                    when (which) {
+                        0 -> launchAudioPicker()
+                        1 -> {
+                            VoiceoverWaveformEngine.autoGenerateDialogueWaveformAndMouths(canvasView.project)
+                            refreshUiState()
+                            canvasView.invalidate()
+                            Toast.makeText(activity, "Generated procedural voiceover waveform", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
+            }
+            .setPositiveButton("Close", null)
+            .show()
+    }
+
+    fun launchAudioPicker() {
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            type = "audio/*"
+            addCategory(Intent.CATEGORY_OPENABLE)
+        }
+        try {
+            activity.startActivityForResult(intent, REQUEST_CODE_AUDIO)
+        } catch (t: Throwable) {
+            Toast.makeText(activity, "Unable to open audio picker: ${t.message}", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    fun importAudioFromUri(uri: Uri) {
+        Toast.makeText(activity, "Decoding audio track...", Toast.LENGTH_SHORT).show()
+        ExternalAudioImportEngine.importAudioFileAsync(
+            context = activity,
+            audioUri = uri,
+            project = canvasView.project,
+            onProgress = { msg ->
+                post { Toast.makeText(activity, msg, Toast.LENGTH_SHORT).show() }
+            }
+        ) { success, msg ->
+            post {
+                refreshUiState()
+                canvasView.invalidate()
+                Toast.makeText(activity, msg, Toast.LENGTH_LONG).show()
+            }
+        }
     }
 
     private fun createStudioButton(label: String, onClick: () -> Unit): TextView {

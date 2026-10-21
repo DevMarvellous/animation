@@ -3,6 +3,7 @@ package com.animationapp
 import android.app.Activity
 import android.app.AlertDialog
 import android.content.ComponentCallbacks2
+import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import android.view.View
@@ -99,6 +100,14 @@ class MainActivity : Activity() {
     override fun onPause() {
         workspaceLayout?.canvasView?.triggerAutosave()
         super.onPause()
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == StudioWorkspaceLayout.REQUEST_CODE_AUDIO && resultCode == Activity.RESULT_OK) {
+            val uri = data?.data ?: return
+            workspaceLayout?.importAudioFromUri(uri)
+        }
     }
 
     override fun onBackPressed() {

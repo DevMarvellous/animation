@@ -12,6 +12,8 @@ enum class StudioToolType(val label: String) {
     BONE_RIG("2D Rig"),
     LAYER_TWEEN("Tween"),
     FILL_BUCKET("Fill"),
+    GRADIENT("Gradient"),
+    TEXT("Text"),
     EYEDROPPER("Picker"),
     CAMERA_2D("2D Cam"),
     SHIFT_TRACE("LightTable"),
