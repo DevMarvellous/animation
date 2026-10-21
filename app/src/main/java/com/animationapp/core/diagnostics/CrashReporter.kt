@@ -51,6 +51,27 @@ object CrashReporter {
         }
     }
 
+    fun logWarning(tag: String, message: String) {
+        synchronized(runtimeLogs) {
+            if (runtimeLogs.size >= DIAGNOSTIC_LOG_MAX_ENTRIES) {
+                runtimeLogs.removeFirst()
+            }
+            val time = SimpleDateFormat("HH:mm:ss.SSS", Locale.US).format(Date())
+            runtimeLogs.addLast("[$time] [WARN] [$tag] $message")
+        }
+    }
+
+    fun logError(tag: String, message: String, throwable: Throwable? = null) {
+        synchronized(runtimeLogs) {
+            if (runtimeLogs.size >= DIAGNOSTIC_LOG_MAX_ENTRIES) {
+                runtimeLogs.removeFirst()
+            }
+            val time = SimpleDateFormat("HH:mm:ss.SSS", Locale.US).format(Date())
+            val errStr = throwable?.let { " (${it.javaClass.simpleName}: ${it.message})" } ?: ""
+            runtimeLogs.addLast("[$time] [ERROR] [$tag] $message$errStr")
+        }
+    }
+
     private fun saveCrashReport(context: Context, thread: Thread, throwable: Throwable) {
         val sw = StringWriter()
         val pw = PrintWriter(sw)

@@ -39,7 +39,7 @@ object VoiceoverWaveformEngine {
                 amp < 0.08f -> LipSyncPhoneme.NONE
                 amp < 0.25f -> LipSyncPhoneme.M_B_P
                 amp < 0.45f -> if (i % 2 == 0) LipSyncPhoneme.F_V else LipSyncPhoneme.L_TH
-                amp < 0.68f -> if (i % 2 == 0) LipSyncPhoneme.E else LipSyncPhoneme.U_W
+                amp < 0.68f -> if (i % 2 == 0) LipSyncPhoneme.E else LipSyncPhoneme.U
                 amp < 0.85f -> LipSyncPhoneme.O
                 else -> LipSyncPhoneme.A_I
             }
@@ -56,7 +56,7 @@ object VoiceoverWaveformEngine {
             val f = frames[i]
             val isDownbeat = (i % interval == 0)
             f.audioAmplitude = if (isDownbeat) 1.0f else 0.15f
-            f.phonemeMarker = if (isDownbeat) LipSyncPhoneme.BEAT else LipSyncPhoneme.NONE
+            f.phonemeMarker = if (isDownbeat) LipSyncPhoneme.BEAT_CLICK else LipSyncPhoneme.NONE
         }
     }
 
