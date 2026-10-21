@@ -624,10 +624,10 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
 
         val btnSaveSlot = createStudioButton("💾 Save Scene Slot ('${proj.projectName}.pas')") {
             val newName = nameInput.text.toString().trim().ifEmpty { "Scene_1" }
-            val ok = MultiProjectManager.saveProjectSlot(context, proj, newName)
+            val savedFile = MultiProjectManager.saveProjectSlot(context, proj, newName)
             canvasView.triggerAutosave()
             refreshUiState()
-            if (ok) {
+            if (savedFile.exists()) {
                 Toast.makeText(activity, "Saved scene '$newName.pas'", Toast.LENGTH_SHORT).show()
             }
         }
