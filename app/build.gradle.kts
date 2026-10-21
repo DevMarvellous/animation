@@ -5,12 +5,12 @@ plugins {
 
 android {
     namespace = "com.animationapp"
-    compileSdk = 35
+    compileSdk = 34
 
     defaultConfig {
         applicationId = "com.animationapp"
         minSdk = 24
-        targetSdk = 35
+        targetSdk = 34
         versionCode = 1
         versionName = "0.1.0-alpha"
     }

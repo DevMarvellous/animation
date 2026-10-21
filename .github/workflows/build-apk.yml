@@ -24,6 +24,7 @@ jobs:
       - name: Install Gradle 8.10.2 & Build APKs
         shell: bash
         run: |
+          set -o pipefail
           GRADLE_VERSION=8.10.2
           if [ ! -d "$HOME/.gradle-dist/gradle-${GRADLE_VERSION}" ]; then
             mkdir -p "$HOME/.gradle-dist"
@@ -31,10 +32,26 @@ jobs:
             unzip -q /tmp/gradle.zip -d "$HOME/.gradle-dist"
           fi
           export ANDROID_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
-          export PATH="$HOME/.gradle-dist/gradle-${GRADLE_VERSION}/bin:$ANDROID_HOME/cmdline-tools/latest/bin:$PATH"
+          export PATH="$HOME/.gradle-dist/gradle-${GRADLE_VERSION}/bin:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/tools/bin:$PATH"
           yes | sdkmanager --licenses || true
-          gradle assembleDebug --stacktrace --no-daemon
-          gradle assembleRelease --stacktrace --no-daemon || true
+          
+          echo "Starting assembleDebug..."
+          gradle assembleDebug --stacktrace --no-daemon 2>&1 | tee build_debug.log || {
+            echo "=== GRADLE ASSEMBLE DEBUG FAILED ==="
+            tail -n 100 build_debug.log
+            exit 1
+          }
+          
+          echo "Starting assembleRelease..."
+          gradle assembleRelease --stacktrace --no-daemon 2>&1 | tee build_release.log || true
+
+      - name: Upload Build Diagnostic Logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Build-Diagnostics-Log
+          path: build_*.log
+          if-no-files-found: ignore
 
       - name: Upload Debug APK
         uses: actions/upload-artifact@v4
