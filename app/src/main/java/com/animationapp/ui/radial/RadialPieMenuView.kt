@@ -23,7 +23,7 @@ import kotlin.math.sin
  */
 class RadialPieMenuView(
     context: Context,
-    private val onActionSelected: (RadialAction) -> Unit
+    var onActionSelected: ((RadialAction) -> Unit)? = null
 ) : View(context) {
 
     enum class RadialAction(val label: String) {
@@ -183,10 +183,11 @@ class RadialPieMenuView(
                 hoveredSectorIndex = -1
                 invalidate()
                 if (chosenIdx in actions.indices) {
-                    onActionSelected(actions[chosenIdx])
+                    onActionSelected?.invoke(actions[chosenIdx])
                 }
             }
         }
         return true
     }
 }
+

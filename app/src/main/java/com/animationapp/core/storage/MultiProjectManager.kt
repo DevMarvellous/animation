@@ -10,11 +10,11 @@ import java.io.File
 /**
  * 2D Studio Stage Resolution & Aspect Ratio Presets (Phase 23).
  */
-enum class CanvasStagePreset(val label: String, val width: Int, val height: Int) {
-    WIDESCREEN_16_9("📺 16:9 Widescreen Anime / HD (1280×720)", 1280, 720),
-    VERTICAL_9_16("📱 9:16 Vertical Shorts / TikTok (720×1280)", 720, 1280),
-    SQUARE_1_1("⬜ 1:1 Square Loop (960×960)", 960, 960),
-    RETRO_4_3("👾 4:3 Retro / Low-RAM Turbo (640×480)", 640, 480)
+enum class CanvasStagePreset(val icon: String, val label: String, val width: Int, val height: Int) {
+    WIDESCREEN_16_9("📺", "16:9 Widescreen Anime / HD (1280×720)", 1280, 720),
+    VERTICAL_9_16("📱", "9:16 Vertical Shorts / TikTok (720×1280)", 720, 1280),
+    SQUARE_1_1("⬜", "1:1 Square Loop (960×960)", 960, 960),
+    RETRO_4_3("👾", "4:3 Retro / Low-RAM Turbo (640×480)", 640, 480)
 }
 
 /**
@@ -70,11 +70,19 @@ object MultiProjectManager {
         return ok
     }
 
-    fun startNewBlankProject(
-        context: Context,
+    fun loadProjectSlot(context: Context, targetProject: AnimationProject, sourceFile: File): Boolean {
+        return loadProjectSlot(context, sourceFile, targetProject)
+    }
+
+    fun loadProjectSlot(context: Context, targetProject: AnimationProject, fileName: String): Boolean {
+        val file = File(getProjectsDir(context), fileName)
+        return loadProjectSlot(context, targetProject, file)
+    }
+
+    fun resetToNewBlankProject(
         targetProject: AnimationProject,
-        preset: CanvasStagePreset,
-        sceneName: String = "Scene_${(System.currentTimeMillis() % 10000)}"
+        sceneName: String,
+        preset: CanvasStagePreset
     ) {
         targetProject.projectName = sceneName
         targetProject.resizeStage(preset.width, preset.height)
@@ -90,6 +98,16 @@ object MultiProjectManager {
 
         targetProject.selectLayer(1)
         targetProject.selectFrame(0)
+    }
+
+    fun startNewBlankProject(
+        context: Context,
+        targetProject: AnimationProject,
+        preset: CanvasStagePreset,
+        sceneName: String = "Scene_${(System.currentTimeMillis() % 10000)}"
+    ) {
+        resetToNewBlankProject(targetProject, sceneName, preset)
         CrashSafeAutosave.writeProjectAtomically(context, targetProject)
     }
 }
+

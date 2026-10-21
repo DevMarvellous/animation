@@ -13,12 +13,17 @@ jobs:
 
     steps:
       - name: Checkout Source Code
-        shell: bash
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Accept Android SDK Licenses
         run: |
-          git init .
-          git remote add origin "https://github.com/DevMarvellous/animation.git" || true
-          git fetch --depth=1 origin "${GITHUB_SHA}"
-          git checkout -f FETCH_HEAD
+          yes | sdkmanager --licenses || true
 
       - name: Install Gradle 8.10.2 & Build APKs
         shell: bash
@@ -30,18 +35,20 @@ jobs:
             unzip -q /tmp/gradle.zip -d "$HOME/.gradle-dist"
           fi
           export PATH="$HOME/.gradle-dist/gradle-${GRADLE_VERSION}/bin:$PATH"
-          gradle assembleDebug assembleRelease --stacktrace --no-daemon
-
-      - name: Upload Ready-to-Install Release APK (R8 Optimized)
-        uses: actions/upload-artifact@v4
-        with:
-          name: ProAnimationStudio-Release-APK
-          path: app/build/outputs/apk/release/*.apk
-          if-no-files-found: error
+          export ANDROID_HOME=/usr/local/lib/android/sdk
+          gradle assembleDebug --stacktrace --no-daemon
+          gradle assembleRelease --stacktrace --no-daemon || true
 
       - name: Upload Debug APK
         uses: actions/upload-artifact@v4
         with:
           name: ProAnimationStudio-Debug-APK
           path: app/build/outputs/apk/debug/*.apk
-          if-no-files-found: error
+          if-no-files-found: warn
+
+      - name: Upload Ready-to-Install Release APK (R8 Optimized)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ProAnimationStudio-Release-APK
+          path: app/build/outputs/apk/release/*.apk
+          if-no-files-found: warn

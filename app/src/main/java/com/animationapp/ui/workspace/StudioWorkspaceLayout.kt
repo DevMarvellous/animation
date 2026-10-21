@@ -115,11 +115,18 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
 
         // 2b. Add Floating Quick Radial Pie Menu (`🎯 Pie` — Phase 25)
         radialPieMenu.visibility = View.GONE
-        radialPieMenu.onToolSelected = { selectTool(it) }
-        radialPieMenu.onUndo = { canvasView.performUndo() }
-        radialPieMenu.onRedo = { canvasView.performRedo() }
-        radialPieMenu.onTogglePlay = { canvasView.togglePlayback() }
-        radialPieMenu.onAddFrame = { canvasView.addBlankFrame() }
+        radialPieMenu.onActionSelected = { action ->
+            when (action) {
+                RadialPieMenuView.RadialAction.PEN -> selectTool(StudioToolType.BRUSH)
+                RadialPieMenuView.RadialAction.ERASE -> selectTool(StudioToolType.ERASER)
+                RadialPieMenuView.RadialAction.FILL -> selectTool(StudioToolType.FILL_BUCKET)
+                RadialPieMenuView.RadialAction.LASSO -> selectTool(StudioToolType.LASSO)
+                RadialPieMenuView.RadialAction.UNDO -> canvasView.performUndo()
+                RadialPieMenuView.RadialAction.REDO -> canvasView.performRedo()
+                RadialPieMenuView.RadialAction.PLAY_PAUSE -> canvasView.togglePlayback()
+                RadialPieMenuView.RadialAction.ADD_FRAME -> canvasView.addBlankFrame()
+            }
+        }
         addView(
             radialPieMenu,
             LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
@@ -631,16 +638,16 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
 
         if (savedList.isNotEmpty()) {
             val btnLoadSaved = createStudioButton("📂 Open Saved Scene (${savedList.size} slots)") {
-                val names = savedList.toTypedArray()
+                val fileNames = savedList.map { it.name }.toTypedArray()
                 AlertDialog.Builder(activity)
                     .setTitle("Load Saved .PAS Scene")
-                    .setItems(names) { _, idx ->
-                        val chosen = names[idx]
-                        if (MultiProjectManager.loadProjectSlot(context, proj, chosen)) {
+                    .setItems(fileNames) { _, idx ->
+                        val chosenFile = savedList[idx]
+                        if (MultiProjectManager.loadProjectSlot(context, proj, chosenFile)) {
                             canvasView.fitStageToScreen()
                             canvasView.triggerAutosave()
                             refreshUiState()
-                            Toast.makeText(activity, "Loaded '$chosen'", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(activity, "Loaded '${chosenFile.name}'", Toast.LENGTH_SHORT).show()
                         }
                     }
                     .show()

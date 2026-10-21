@@ -14,12 +14,22 @@ class AnimationProject(
     var stageBackgroundColor: Int = Color.WHITE,
     var projectName: String = "Untitled_Scene"
 ) {
-    fun resizeStage(newWidth: Int, newHeight: Int) {
-        stageWidth = newWidth.coerceIn(128, 2560)
-        stageHeight = newHeight.coerceIn(128, 2560)
+    var canvasPaperColor: Int
+        get() = stageBackgroundColor
+        set(value) {
+            stageBackgroundColor = value
+        }
+
+    fun markAllFramesDirty() {
         for (f in frames) {
             f.isCacheDirty = true
         }
+    }
+
+    fun resizeStage(newWidth: Int, newHeight: Int) {
+        stageWidth = newWidth.coerceIn(128, 2560)
+        stageHeight = newHeight.coerceIn(128, 2560)
+        markAllFramesDirty()
     }
     // Default studio setup: Layer 0 = "Color Fill" (bottom), Layer 1 = "Ink Line-Art" (top, set as Reference)
     val layers = ArrayList<AnimationLayer>().apply {
