@@ -29,6 +29,7 @@ object StudioPreferences {
     // 3. Brush, Coloring & Feeling
     var defaultStabilizerPercent: Int = 45
     var fillGapClosingRadiusPx: Int = 2 // Seals small 2px–8px line-art gaps during Paint Bucket fill
+    var pingPongPlaybackMode: Boolean = false
 
     fun load(context: Context) {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -41,6 +42,7 @@ object StudioPreferences {
         gridSpacingPx = prefs.getInt("gridSpacingPx", 120)
         defaultStabilizerPercent = prefs.getInt("defaultStabilizerPercent", 45)
         fillGapClosingRadiusPx = prefs.getInt("fillGapClosingRadiusPx", 2)
+        pingPongPlaybackMode = prefs.getBoolean("pingPongPlaybackMode", false)
     }
 
     fun save(context: Context) {
@@ -54,6 +56,7 @@ object StudioPreferences {
             putInt("gridSpacingPx", gridSpacingPx)
             putInt("defaultStabilizerPercent", defaultStabilizerPercent)
             putInt("fillGapClosingRadiusPx", fillGapClosingRadiusPx)
+            putBoolean("pingPongPlaybackMode", pingPongPlaybackMode)
             apply()
         }
     }

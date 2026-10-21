@@ -155,6 +155,7 @@ class RadialPieMenuView(
                     if (!hasDraggedPuck) {
                         isExpanded = true
                         hoveredSectorIndex = -1
+                        bringToFront()
                         invalidate()
                     }
                     return true

@@ -77,6 +77,8 @@ class AnimationCanvasView(
     // Playback loop state with Exposure Hold counter
     var isPlaying: Boolean = false
         private set
+    var isPingPongPlayback: Boolean = StudioPreferences.pingPongPlaybackMode
+    private var isPingPongReversing: Boolean = false
     private var lastPlaybackStepTimeMs = 0L
     private var currentHoldTick = 0
 
@@ -283,7 +285,11 @@ class AnimationCanvasView(
                 currentHoldTick++
                 if (currentHoldTick >= project.currentFrame.exposureHold) {
                     currentHoldTick = 0
-                    project.stepForwardLooping()
+                    if (isPingPongPlayback) {
+                        stepPlaybackPingPong()
+                    } else {
+                        project.stepForwardLooping()
+                    }
                     project.currentFrame.isCacheDirty = true
                     LipSyncAudioEngine.playFrameScrubSlice(project.currentFrame.phonemeMarker)
                     onStateChanged?.invoke()
@@ -1060,6 +1066,64 @@ class AnimationCanvasView(
         triggerAutosave()
         onStateChanged?.invoke()
         invalidate()
+    }
+
+    private fun stepPlaybackPingPong() {
+        val frames = project.frames
+        if (frames.size <= 1) return
+        val start = if (project.isLoopRangeEnabled) project.loopStartFrame.coerceIn(0, frames.lastIndex) else 0
+        val end = if (project.isLoopRangeEnabled) project.loopEndFrame.coerceIn(start, frames.lastIndex) else frames.lastIndex
+
+        var cur = project.currentFrameIndex
+        if (!isPingPongReversing) {
+            if (cur >= end) {
+                isPingPongReversing = true
+                cur = (cur - 1).coerceAtLeast(start)
+            } else {
+                cur++
+            }
+        } else {
+            if (cur <= start) {
+                isPingPongReversing = false
+                cur = (cur + 1).coerceAtMost(end)
+            } else {
+                cur--
+            }
+        }
+        project.selectFrame(cur)
+    }
+
+    fun moveCurrentFrameLeft() {
+        pausePlayback()
+        lassoController.clearSelection()
+        if (project.moveCurrentFrameLeft()) {
+            DiskSwapManager.maintainHotFrameWindow(context, project)
+            triggerAutosave()
+            onStateChanged?.invoke()
+            invalidate()
+        }
+    }
+
+    fun moveCurrentFrameRight() {
+        pausePlayback()
+        lassoController.clearSelection()
+        if (project.moveCurrentFrameRight()) {
+            DiskSwapManager.maintainHotFrameWindow(context, project)
+            triggerAutosave()
+            onStateChanged?.invoke()
+            invalidate()
+        }
+    }
+
+    fun reverseAllFrames() {
+        pausePlayback()
+        lassoController.clearSelection()
+        if (project.reverseAllFrames()) {
+            DiskSwapManager.maintainHotFrameWindow(context, project)
+            triggerAutosave()
+            onStateChanged?.invoke()
+            invalidate()
+        }
     }
 
     fun cycleExposureHold() {

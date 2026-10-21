@@ -14,7 +14,10 @@ enum class LayerBlendMode(val label: String, val porterDuffMode: PorterDuff.Mode
     MULTIPLY("Multiply", PorterDuff.Mode.MULTIPLY),
     SCREEN("Screen", PorterDuff.Mode.SCREEN),
     ADD("Add (Glow)", PorterDuff.Mode.ADD),
-    OVERLAY("Overlay", PorterDuff.Mode.OVERLAY);
+    OVERLAY("Overlay", PorterDuff.Mode.OVERLAY),
+    DARKEN("Darken", PorterDuff.Mode.DARKEN),
+    LIGHTEN("Lighten", PorterDuff.Mode.LIGHTEN),
+    XOR("XOR / Invert", PorterDuff.Mode.XOR);
 
     val xfermode: PorterDuffXfermode = PorterDuffXfermode(porterDuffMode)
 }

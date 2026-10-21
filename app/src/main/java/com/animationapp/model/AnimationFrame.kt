@@ -1,6 +1,18 @@
 package com.animationapp.model
 
+import android.graphics.Color
 import com.animationapp.audio.LipSyncPhoneme
+
+/**
+ * Color-coded 2D Keyframe Classification Tags (Phase 26 Upgrade).
+ */
+enum class FrameTag(val label: String, val symbol: String, val color: Int) {
+    NONE("No Tag", "", Color.TRANSPARENT),
+    KEYFRAME("Keyframe (Extreme)", "🔴", Color.rgb(255, 68, 68)),
+    BREAKDOWN("Breakdown", "🟡", Color.rgb(255, 204, 0)),
+    INBETWEEN("Inbetween", "🟢", Color.rgb(51, 204, 51)),
+    ACTION("Action / Beat", "🔵", Color.rgb(51, 153, 255))
+}
 
 /**
  * Represents a vertical column in the timeline (a single Frame across multiple Layers).
@@ -8,12 +20,14 @@ import com.animationapp.audio.LipSyncPhoneme
  * Supports:
  * - Exposure Holds (1s, 2s, 3s, 4s) so holding a pose across multiple timeline ticks uses 0 extra memory.
  * - Lip-Sync Phoneme Mouth Chart Marker (`LipSyncPhoneme`) for 2D voice/mouth synchronization.
+ * - Color-coded Keyframe classification markers (`FrameTag`).
  */
 class AnimationFrame(
     layerCount: Int = 2,
     var exposureHold: Int = 1,
     var phonemeMarker: LipSyncPhoneme = LipSyncPhoneme.NONE,
-    var audioAmplitude: Float = 0f
+    var audioAmplitude: Float = 0f,
+    var frameTag: FrameTag = FrameTag.NONE
 ) {
     val cels = ArrayList<LayerCel>(layerCount)
 
@@ -98,7 +112,7 @@ class AnimationFrame(
     }
 
     fun duplicate(): AnimationFrame {
-        val dup = AnimationFrame(0, exposureHold, phonemeMarker, audioAmplitude)
+        val dup = AnimationFrame(0, exposureHold, phonemeMarker, audioAmplitude, frameTag)
         for (i in 0 until cels.size) {
             dup.cels.add(cels[i].duplicate())
         }

@@ -25,7 +25,10 @@ enum class BrushPreset(
     PENCIL_SKETCH("Sketch Pencil", "✏", 0.55f, true, Paint.Cap.ROUND, 0f),
     MARKER("Copics Marker", "🖍", 0.72f, true, Paint.Cap.SQUARE, 0f),
     AIRBRUSH("Soft Airbrush", "💨", 0.45f, true, Paint.Cap.ROUND, 12f),
-    PIXEL_ART("Pixel Art", "👾", 1.0f, false, Paint.Cap.SQUARE, 0f);
+    PIXEL_ART("Pixel Art", "👾", 1.0f, false, Paint.Cap.SQUARE, 0f),
+    CALLIGRAPHY_RIBBON("Calligraphy", "🖋", 0.95f, true, Paint.Cap.ROUND, 0f),
+    CHARCOAL_CHALK("Charcoal / Chalk", "🪵", 0.68f, true, Paint.Cap.SQUARE, 0f),
+    NEON_LASER("Neon Glow", "⚡", 0.92f, true, Paint.Cap.ROUND, 8f);
 
     private val cachedMaskFilter: BlurMaskFilter? =
         if (blurRadiusPx > 0f) BlurMaskFilter(blurRadiusPx, BlurMaskFilter.Blur.NORMAL) else null

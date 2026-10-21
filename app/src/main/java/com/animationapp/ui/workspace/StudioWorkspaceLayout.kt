@@ -35,6 +35,7 @@ import com.animationapp.export.GifAndZipSequenceExporter
 import com.animationapp.export.HardwareVideoExporter
 import com.animationapp.export.SpriteSheetExporter
 import com.animationapp.model.AnimationLayer
+import com.animationapp.model.FrameTag
 import com.animationapp.model.LayerBlendMode
 import com.animationapp.ui.color.ColorPaletteStudio
 import com.animationapp.ui.radial.RadialPieMenuView
@@ -195,6 +196,7 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
         pieMenuBtn = createStudioButton("🎯 Pie") {
             val nowVisible = (radialPieMenu.visibility != View.VISIBLE)
             radialPieMenu.visibility = if (nowVisible) View.VISIBLE else View.GONE
+            if (nowVisible) radialPieMenu.bringToFront()
             refreshUiState()
         }
 
@@ -887,7 +889,8 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
             val camSuffix = if (hasCam) "🎥" else ""
             val waveBar = VoiceoverWaveformEngine.amplitudeToBarChar(frame.audioAmplitude)
             val phSuffix = if (phoneme != LipSyncPhoneme.NONE) "[${phoneme.code}]" else ""
-            val pillLabel = "$loopInPrefix${i + 1}$dotSuffix$linkSuffix$tweenSuffix$camSuffix$waveBar$phSuffix$holdSuffix$loopOutSuffix"
+            val tagPrefix = frame.frameTag.symbol
+            val pillLabel = "$loopInPrefix$tagPrefix${i + 1}$dotSuffix$linkSuffix$tweenSuffix$camSuffix$waveBar$phSuffix$holdSuffix$loopOutSuffix"
 
             val pill = TextView(context).apply {
                 text = pillLabel
@@ -895,12 +898,23 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
                 setPadding(dp(11f), dp(4f), dp(11f), dp(4f))
                 setTextColor(if (isCurrent) Color.WHITE else Color.rgb(185, 190, 205))
-                background = createRoundedBg(
-                    if (isCurrent) Color.rgb(75, 123, 236) else Color.rgb(38, 42, 54),
-                    dp(8f)
-                )
+                val pillColor = when {
+                    isCurrent -> Color.rgb(75, 123, 236)
+                    frame.frameTag != FrameTag.NONE -> Color.argb(
+                        170,
+                        Color.red(frame.frameTag.color),
+                        Color.green(frame.frameTag.color),
+                        Color.blue(frame.frameTag.color)
+                    )
+                    else -> Color.rgb(38, 42, 54)
+                }
+                background = createRoundedBg(pillColor, dp(8f))
                 setOnClickListener {
                     canvasView.selectFrame(i)
+                }
+                setOnLongClickListener {
+                    showFrameTagDialog(i)
+                    true
                 }
             }
             val lp = LinearLayout.LayoutParams(
@@ -1075,6 +1089,17 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
             }
         }
 
+        val cbPingPong = CheckBox(context).apply {
+            text = "Default Ping-Pong Loop Mode (Oscillate Forward ⇄ Backward)"
+            setTextColor(Color.WHITE)
+            isChecked = StudioPreferences.pingPongPlaybackMode
+            setOnCheckedChangeListener { _, checked ->
+                StudioPreferences.pingPongPlaybackMode = checked
+                canvasView.isPingPongPlayback = checked
+                StudioPreferences.save(context)
+            }
+        }
+
         val gapLabel = TextView(context).apply {
             text = "Paint Bucket Gap-Closing Radius: ${StudioPreferences.fillGapClosingRadiusPx} px (Seals open line gaps)"
             setTextColor(Color.WHITE)
@@ -1099,6 +1124,7 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
         layout.addView(cbTurbo)
         layout.addView(cbGrid)
         layout.addView(cbAudioScrub)
+        layout.addView(cbPingPong)
         layout.addView(gapLabel)
         layout.addView(gapSeek)
 
@@ -1205,6 +1231,19 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
         root.addView(loopRow, LinearLayout.LayoutParams(
             LayoutParams.MATCH_PARENT,
             LayoutParams.WRAP_CONTENT
+        ).apply { bottomMargin = dp(6f) })
+
+        val cbPingPong = CheckBox(context).apply {
+            text = "Ping-Pong Loop (Oscillate Forward ⇄ Backward smoothly)"
+            setTextColor(Color.WHITE)
+            isChecked = canvasView.isPingPongPlayback
+            setOnCheckedChangeListener { _, checked ->
+                canvasView.isPingPongPlayback = checked
+            }
+        }
+        root.addView(cbPingPong, LinearLayout.LayoutParams(
+            LayoutParams.MATCH_PARENT,
+            LayoutParams.WRAP_CONTENT
         ).apply { bottomMargin = dp(10f) })
 
         val xSheetHeader = TextView(context).apply {
@@ -1231,8 +1270,9 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
                 "L${lIdx + 1}:${if (count > 0) "${count}✎" else "—"}"
             }
 
+            val tagPrefix = if (f.frameTag != FrameTag.NONE) "${f.frameTag.symbol} " else ""
             val rowTv = TextView(context).apply {
-                text = "Frame #${i + 1} (Hold ${f.exposureHold}s)  $phTag$camTag  [$celsSummary]"
+                text = "Frame #${i + 1} $tagPrefix(Hold ${f.exposureHold}s)  $phTag$camTag  [$celsSummary]"
                 setTextColor(Color.WHITE)
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
                 setPadding(dp(10f), dp(6f), dp(10f), dp(6f))
@@ -1361,13 +1401,16 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
             }
             styleButton(btnVfx, isHighlighted = layer.hasActiveVfx(), accentColor = Color.rgb(185, 80, 235))
 
+            lateinit var btnBlendRef: TextView
             val btnBlend = createStudioButton(layer.blendMode.label) {
                 val modes = LayerBlendMode.values()
                 layer.blendMode = modes[(layer.blendMode.ordinal + 1) % modes.size]
+                btnBlendRef.text = layer.blendMode.label
                 proj.currentFrame.isCacheDirty = true
                 canvasView.triggerAutosave()
                 canvasView.invalidate()
             }
+            btnBlendRef = btnBlend
 
             listOf(btnVis, btnRef, btnAlpha, btnVfx, btnBlend).forEach { b ->
                 topLine.addView(
@@ -1787,19 +1830,46 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
 
     private fun showCloneOrLinkCelDialog() {
         val activeLayerName = canvasView.project.activeLayer.name
+        val curNum = canvasView.project.currentFrameIndex + 1
         val options = arrayOf(
             "⧉ Duplicate Whole Frame (Independent Copy of All Layers)",
             "🔗 Link '$activeLayerName' Cel to Next Frame (Shared 2D Symbol — 0 Extra RAM!)",
-            "🔓 Unlink '$activeLayerName' Cel on Current Frame (Make Independent)"
+            "🔓 Unlink '$activeLayerName' Cel on Current Frame (Make Independent)",
+            "◀ Slide Frame #$curNum Earlier (Move Left)",
+            "Slide Frame #$curNum Later ▶ (Move Right)",
+            "🔄 Reverse Entire Animation Order",
+            "🏷 Tag Frame #$curNum (Keyframe / Breakdown / Inbetween)"
         )
         AlertDialog.Builder(activity)
-            .setTitle("Clone Frame or Link 2D Symbol Cel")
+            .setTitle("Timeline Frame & Symbol Tools")
             .setItems(options) { _, which ->
                 when (which) {
                     0 -> canvasView.duplicateCurrentFrame()
                     1 -> canvasView.linkActiveCelToNextFrame()
                     2 -> canvasView.unlinkActiveCelOnCurrentFrame()
+                    3 -> canvasView.moveCurrentFrameLeft()
+                    4 -> canvasView.moveCurrentFrameRight()
+                    5 -> canvasView.reverseAllFrames()
+                    6 -> showFrameTagDialog(canvasView.project.currentFrameIndex)
                 }
+            }
+            .show()
+    }
+
+    private fun showFrameTagDialog(frameIndex: Int) {
+        val fIdx = frameIndex.coerceIn(0, canvasView.project.frames.lastIndex)
+        val frame = canvasView.project.frames[fIdx]
+        val tags = FrameTag.values()
+        val labels = tags.map { t ->
+            if (t == FrameTag.NONE) "✕ Clear Tag (Default)" else "${t.symbol} ${t.label}"
+        }.toTypedArray()
+
+        AlertDialog.Builder(activity)
+            .setTitle("Tag Frame #${fIdx + 1}")
+            .setItems(labels) { _, which ->
+                frame.frameTag = tags[which]
+                canvasView.triggerAutosave()
+                refreshUiState()
             }
             .show()
     }

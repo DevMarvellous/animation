@@ -7,6 +7,7 @@ import com.animationapp.engine.brush.BrushPreset
 import com.animationapp.model.AnimationFrame
 import com.animationapp.model.AnimationLayer
 import com.animationapp.model.AnimationProject
+import com.animationapp.model.FrameTag
 import com.animationapp.model.LayerBlendMode
 import com.animationapp.model.Stroke
 import java.io.BufferedInputStream
@@ -25,6 +26,7 @@ import java.util.concurrent.Executors
 object CrashSafeAutosave {
 
     private const val MAGIC_HEADER_V3 = 0x50415333 // "PAS3"
+    private const val MAGIC_HEADER_V4 = 0x50415334 // "PAS4"
     private const val AUTOSAVE_FILE = "autosave.pas"
     private const val AUTOSAVE_TMP_FILE = "autosave.pas.tmp"
 
@@ -55,7 +57,7 @@ object CrashSafeAutosave {
     @Synchronized
     fun writeProjectToFile(targetFile: File, project: AnimationProject) {
         DataOutputStream(BufferedOutputStream(FileOutputStream(targetFile))).use { out ->
-            out.writeInt(MAGIC_HEADER_V3)
+            out.writeInt(MAGIC_HEADER_V4)
             out.writeUTF(project.projectName)
             out.writeInt(project.stageWidth)
             out.writeInt(project.stageHeight)
@@ -87,6 +89,7 @@ object CrashSafeAutosave {
                 out.writeInt(frame.exposureHold)
                 out.writeInt(frame.phonemeMarker.ordinal)
                 out.writeFloat(frame.audioAmplitude)
+                out.writeInt(frame.frameTag.ordinal)
                 for (lIdx in 0 until layerCount) {
                     val cel = frame.getCel(lIdx)
                     val strokes = cel.strokes
@@ -124,7 +127,7 @@ object CrashSafeAutosave {
         return try {
             DataInputStream(BufferedInputStream(FileInputStream(sourceFile))).use { input ->
                 val magic = input.readInt()
-                if (magic != MAGIC_HEADER_V3) return false
+                if (magic != MAGIC_HEADER_V3 && magic != MAGIC_HEADER_V4) return false
 
                 targetProject.projectName = input.readUTF()
                 val loadedW = input.readInt().coerceIn(128, 2560)
@@ -169,15 +172,18 @@ object CrashSafeAutosave {
                 targetProject.frames.clear()
                 val phonemes = LipSyncPhoneme.values()
                 val presets = BrushPreset.values()
+                val frameTags = FrameTag.values()
                 for (fIdx in 0 until frameCount) {
                     val hold = input.readInt().coerceIn(1, 24)
                     val phOrd = input.readInt().coerceIn(0, phonemes.lastIndex)
                     val amp = input.readFloat()
+                    val tagOrd = if (magic == MAGIC_HEADER_V4) input.readInt().coerceIn(0, frameTags.lastIndex) else 0
                     val frame = AnimationFrame(
                         layerCount = layerCount,
                         exposureHold = hold,
                         phonemeMarker = phonemes[phOrd],
-                        audioAmplitude = amp
+                        audioAmplitude = amp,
+                        frameTag = frameTags[tagOrd]
                     )
                     for (lIdx in 0 until layerCount) {
                         val cel = frame.getCel(lIdx)

@@ -172,6 +172,41 @@ class AnimationProject(
         return true
     }
 
+    /**
+     * Shifts the active frame one slot earlier in the timeline (to the left).
+     */
+    fun moveCurrentFrameLeft(): Boolean {
+        if (currentFrameIndex <= 0 || frames.size <= 1) return false
+        val frame = frames.removeAt(currentFrameIndex)
+        currentFrameIndex--
+        frames.add(currentFrameIndex, frame)
+        markAllFramesDirty()
+        return true
+    }
+
+    /**
+     * Shifts the active frame one slot later in the timeline (to the right).
+     */
+    fun moveCurrentFrameRight(): Boolean {
+        if (currentFrameIndex >= frames.lastIndex || frames.size <= 1) return false
+        val frame = frames.removeAt(currentFrameIndex)
+        currentFrameIndex++
+        frames.add(currentFrameIndex, frame)
+        markAllFramesDirty()
+        return true
+    }
+
+    /**
+     * Reverses the order of all frames in the animation (ideal for ping-pong loops).
+     */
+    fun reverseAllFrames(): Boolean {
+        if (frames.size <= 1) return false
+        frames.reverse()
+        currentFrameIndex = (frames.lastIndex - currentFrameIndex).coerceIn(0, frames.lastIndex)
+        markAllFramesDirty()
+        return true
+    }
+
     fun cycleCurrentFrameExposureHold(): Int {
         val nextHold = when (currentFrame.exposureHold) {
             1 -> 2
