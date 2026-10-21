@@ -13,6 +13,8 @@ import android.os.Environment
 import android.provider.MediaStore
 import com.animationapp.core.diagnostics.CrashReporter
 import com.animationapp.core.storage.DiskSwapManager
+import com.animationapp.engine.vfx.LayerVfxEngine
+import com.animationapp.model.AnimationLayer
 import com.animationapp.model.AnimationProject
 import com.animationapp.model.LayerCel
 import com.animationapp.model.Stroke
@@ -78,6 +80,8 @@ object SpriteSheetExporter {
                 jsonBuilder.appendLine("  \"rows\": $rows,")
                 jsonBuilder.appendLine("  \"frames\": [")
 
+                val tweenScratch5 = FloatArray(5)
+
                 for (fIdx in 0 until totalFrames) {
                     val col = fIdx % cols
                     val row = fIdx / cols
@@ -94,7 +98,19 @@ object SpriteSheetExporter {
                         if (!cel.hasContent()) continue
 
                         scratchCanvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
-                        renderCel(scratchCanvas, cel, layer.isAlphaLocked, strokePaint, eraserXfer, alphaLockXfer)
+                        scratchCanvas.save()
+                        if (layer.tweenTrack.hasKeyframes()) {
+                            scratchCanvas.concat(
+                                layer.tweenTrack.buildLayerMatrix(
+                                    fIdx,
+                                    project.stageWidth,
+                                    project.stageHeight,
+                                    tweenScratch5
+                                )
+                            )
+                        }
+                        renderCel(scratchCanvas, cel, layer, fIdx, strokePaint, eraserXfer, alphaLockXfer)
+                        scratchCanvas.restore()
                         layer.syncCompositingPaint()
                         stageTempCanvas.drawBitmap(scratchBmp, 0f, 0f, layer.compositingPaint)
                     }
@@ -131,7 +147,8 @@ object SpriteSheetExporter {
     private fun renderCel(
         targetCanvas: Canvas,
         cel: LayerCel,
-        isAlphaLocked: Boolean,
+        layer: AnimationLayer,
+        boilSeed: Int,
         strokePaint: Paint,
         eraserXfer: PorterDuffXfermode,
         alphaLockXfer: PorterDuffXfermode
@@ -139,9 +156,18 @@ object SpriteSheetExporter {
         DiskSwapManager.restoreCelFromDiskIfNeeded(cel)?.let { bmp ->
             if (!bmp.isRecycled) targetCanvas.drawBitmap(bmp, 0f, 0f, null)
         }
+        val isAlphaLocked = layer.isAlphaLocked
         val strokes = cel.strokes
         for (i in 0 until strokes.size) {
             val s: Stroke = strokes[i]
+            val effectivePath = if (layer.vfxLineBoilPx > 0.1f) {
+                LayerVfxEngine.getEffectiveStrokePath(s, layer, boilSeed)
+            } else {
+                s.renderPath
+            }
+            if (layer.hasActiveVfx()) {
+                LayerVfxEngine.drawStrokeUnderlayVfx(targetCanvas, s, effectivePath, layer)
+            }
             if (s.isEraser) {
                 strokePaint.xfermode = eraserXfer
                 strokePaint.strokeWidth = s.baseSize
@@ -151,7 +177,7 @@ object SpriteSheetExporter {
                 s.brushPreset.applyToPaint(strokePaint, s.color, s.baseSize)
                 strokePaint.xfermode = if (isAlphaLocked && i > 0) alphaLockXfer else null
             }
-            targetCanvas.drawPath(s.renderPath, strokePaint)
+            targetCanvas.drawPath(effectivePath, strokePaint)
             strokePaint.xfermode = null
             strokePaint.maskFilter = null
         }

@@ -18,6 +18,7 @@ import android.widget.TextView
 import android.widget.Toast
 import com.animationapp.audio.LipSyncAudioEngine
 import com.animationapp.audio.LipSyncPhoneme
+import com.animationapp.audio.VoiceoverWaveformEngine
 import com.animationapp.core.config.StudioPreferences
 import com.animationapp.core.diagnostics.CrashReporter
 import com.animationapp.core.storage.DiskSwapManager
@@ -25,8 +26,10 @@ import com.animationapp.engine.AnimationCanvasView
 import com.animationapp.engine.brush.BrushPreset
 import com.animationapp.engine.tools.Shape2DMode
 import com.animationapp.engine.tools.StudioToolType
+import com.animationapp.engine.tween.TweenEasingType
 import com.animationapp.export.HardwareVideoExporter
 import com.animationapp.export.SpriteSheetExporter
+import com.animationapp.model.AnimationLayer
 import com.animationapp.model.LayerBlendMode
 import com.animationapp.ui.color.ColorPaletteStudio
 import com.animationapp.ui.reference.ReferencePinboardView
@@ -238,6 +241,14 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
         }
         val btnCutter = createStudioButton("✂ Trim") { selectTool(StudioToolType.VECTOR_CUTTER) }
         val btnLasso = createStudioButton("⬠ Lasso") { selectTool(StudioToolType.LASSO) }
+        val btnRig = createStudioButton("🦴 Rig") {
+            selectTool(StudioToolType.BONE_RIG)
+            showSkeletonRigDialog()
+        }
+        val btnTween = createStudioButton("📈 Tween") {
+            selectTool(StudioToolType.LAYER_TWEEN)
+            showLayerTweenAndGraphDialog()
+        }
         val btnBucket = createStudioButton("🪣 Fill") { selectTool(StudioToolType.FILL_BUCKET) }
         val btnPicker = createStudioButton("💧 Pick") { selectTool(StudioToolType.EYEDROPPER) }
         val btnCamTool = createStudioButton("🎥 Cam") { selectTool(StudioToolType.CAMERA_2D) }
@@ -250,6 +261,8 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
             StudioToolType.SHAPE_GUIDE to btnShapes,
             StudioToolType.VECTOR_CUTTER to btnCutter,
             StudioToolType.LASSO to btnLasso,
+            StudioToolType.BONE_RIG to btnRig,
+            StudioToolType.LAYER_TWEEN to btnTween,
             StudioToolType.FILL_BUCKET to btnBucket,
             StudioToolType.EYEDROPPER to btnPicker,
             StudioToolType.CAMERA_2D to btnCamTool,
@@ -263,8 +276,8 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
         }
 
         listOf(
-            btnPen, btnEraser, btnShapes, btnCutter, btnLasso, btnBucket,
-            btnPicker, btnCamTool, btnShift, btnPan
+            btnPen, btnEraser, btnShapes, btnCutter, btnLasso, btnRig, btnTween,
+            btnBucket, btnPicker, btnCamTool, btnShift, btnPan
         ).forEach { btn ->
             val lp = LinearLayout.LayoutParams(dp(74f), dp(29f)).apply {
                 bottomMargin = dp(4f)
@@ -631,9 +644,11 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
             val holdSuffix = if (frame.exposureHold > 1) " (x${frame.exposureHold})" else ""
             val dotSuffix = if (hasInk) "•" else ""
             val linkSuffix = if (frame.hasLinkedSymbol()) "🔗" else ""
+            val tweenSuffix = if (proj.activeLayer.tweenTrack.hasKeyframeAt(i)) "📈" else ""
             val camSuffix = if (hasCam) "🎥" else ""
+            val waveBar = VoiceoverWaveformEngine.amplitudeToBarChar(frame.audioAmplitude)
             val phSuffix = if (phoneme != LipSyncPhoneme.NONE) "[${phoneme.code}]" else ""
-            val pillLabel = "$loopInPrefix${i + 1}$dotSuffix$linkSuffix$camSuffix$phSuffix$holdSuffix$loopOutSuffix"
+            val pillLabel = "$loopInPrefix${i + 1}$dotSuffix$linkSuffix$tweenSuffix$camSuffix$waveBar$phSuffix$holdSuffix$loopOutSuffix"
 
             val pill = TextView(context).apply {
                 text = pillLabel
@@ -659,17 +674,40 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
 
     private fun showLipSyncPhonemeDialog() {
         val phonemes = LipSyncPhoneme.values()
-        val labels = Array(phonemes.size) { idx ->
-            val p = phonemes[idx]
-            if (p == LipSyncPhoneme.NONE) "🚫 Clear Mouth Marker" else "👄 [${p.code}] — ${p.description}"
+        val extraCount = 3
+        val labels = Array(phonemes.size + extraCount) { idx ->
+            when (idx) {
+                0 -> "🤖 Auto-Generate Dialogue Waveform & 2D Mouths (All Frames)"
+                1 -> "🥁 Generate Rhythm Beat Track (Every 4 Frames)"
+                2 -> "🧹 Clear All Waveform & Mouth Markers"
+                else -> {
+                    val p = phonemes[idx - extraCount]
+                    if (p == LipSyncPhoneme.NONE) "🚫 Clear Mouth on Current Frame" else "👄 [${p.code}] — ${p.description}"
+                }
+            }
         }
 
         AlertDialog.Builder(activity)
-            .setTitle("2D Lip-Sync Mouth Chart (Frame ${canvasView.project.currentFrameIndex + 1})")
+            .setTitle("2D Lip-Sync & Waveform Track (Frame ${canvasView.project.currentFrameIndex + 1})")
             .setItems(labels) { _, which ->
-                val chosen = phonemes[which]
-                canvasView.project.currentFrame.phonemeMarker = chosen
-                LipSyncAudioEngine.playFrameScrubSlice(chosen)
+                when (which) {
+                    0 -> {
+                        VoiceoverWaveformEngine.autoGenerateDialogueWaveformAndMouths(canvasView.project)
+                        LipSyncAudioEngine.playFrameScrubSlice(canvasView.project.currentFrame.phonemeMarker)
+                    }
+                    1 -> {
+                        VoiceoverWaveformEngine.generateRhythmBeatTrack(canvasView.project, 4)
+                        LipSyncAudioEngine.playFrameScrubSlice(canvasView.project.currentFrame.phonemeMarker)
+                    }
+                    2 -> {
+                        VoiceoverWaveformEngine.clearWaveformAndMarkers(canvasView.project)
+                    }
+                    else -> {
+                        val chosen = phonemes[which - extraCount]
+                        canvasView.project.currentFrame.phonemeMarker = chosen
+                        LipSyncAudioEngine.playFrameScrubSlice(chosen)
+                    }
+                }
                 canvasView.triggerAutosave()
                 refreshUiState()
             }
@@ -1045,7 +1083,9 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
             val titleTv = TextView(context).apply {
                 val refTag = if (layer.isReferenceLayer) " ⭐Ref" else ""
                 val alphaTag = if (layer.isAlphaLocked) " 🔒Alpha" else ""
-                text = "${lIdx + 1}. ${layer.name}$refTag$alphaTag (${layer.blendMode.label})"
+                val vfxTag = if (layer.hasActiveVfx()) " ✨VFX" else ""
+                val tweenTag = if (layer.tweenTrack.hasKeyframes()) " 📈Tween" else ""
+                text = "${lIdx + 1}. ${layer.name}$refTag$alphaTag$vfxTag$tweenTag (${layer.blendMode.label})"
                 setTextColor(Color.WHITE)
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
                 setOnClickListener {
@@ -1077,6 +1117,11 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
                 canvasView.invalidate()
             }
 
+            val btnVfx = createStudioButton("✨ VFX") {
+                showLayerVfxDialog(layer)
+            }
+            styleButton(btnVfx, isHighlighted = layer.hasActiveVfx(), accentColor = Color.rgb(185, 80, 235))
+
             val btnBlend = createStudioButton(layer.blendMode.label) {
                 val modes = LayerBlendMode.values()
                 layer.blendMode = modes[(layer.blendMode.ordinal + 1) % modes.size]
@@ -1085,7 +1130,7 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
                 canvasView.invalidate()
             }
 
-            listOf(btnVis, btnRef, btnAlpha, btnBlend).forEach { b ->
+            listOf(btnVis, btnRef, btnAlpha, btnVfx, btnBlend).forEach { b ->
                 topLine.addView(
                     b,
                     LinearLayout.LayoutParams(LayoutParams.WRAP_CONTENT, dp(30f)).apply { marginStart = dp(4f) }
@@ -1123,6 +1168,273 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
             .setTitle("Studio Layers (Tap Layer Name to Select)")
             .setView(scroll)
             .setPositiveButton("Done") { _, _ -> refreshUiState() }
+            .show()
+    }
+
+    private fun showLayerVfxDialog(layer: AnimationLayer) {
+        val root = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20f), dp(14f), dp(20f), dp(10f))
+        }
+
+        val boilLabel = TextView(context).apply {
+            text = "〰 Hand-Drawn Line-Boil (Living Ink Shimmer): ${layer.vfxLineBoilPx.toInt()} px"
+            setTextColor(Color.WHITE)
+        }
+        val boilSeek = SeekBar(context).apply {
+            max = 8
+            progress = layer.vfxLineBoilPx.toInt().coerceIn(0, 8)
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(s: SeekBar?, p: Int, fromUser: Boolean) {
+                    layer.vfxLineBoilPx = p.toFloat()
+                    boilLabel.text = "〰 Hand-Drawn Line-Boil (Living Ink Shimmer): $p px"
+                    canvasView.project.currentFrame.isCacheDirty = true
+                    canvasView.invalidate()
+                }
+                override fun onStartTrackingTouch(s: SeekBar?) {}
+                override fun onStopTrackingTouch(s: SeekBar?) {}
+            })
+        }
+
+        val glowLabel = TextView(context).apply {
+            text = "✨ Anime Glow / Bloom Radius: ${layer.vfxGlowRadiusPx.toInt()} px"
+            setTextColor(Color.WHITE)
+            setPadding(0, dp(10f), 0, 0)
+        }
+        val glowSeek = SeekBar(context).apply {
+            max = 24
+            progress = layer.vfxGlowRadiusPx.toInt().coerceIn(0, 24)
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(s: SeekBar?, p: Int, fromUser: Boolean) {
+                    layer.vfxGlowRadiusPx = p.toFloat()
+                    glowLabel.text = "✨ Anime Glow / Bloom Radius: $p px"
+                    canvasView.project.currentFrame.isCacheDirty = true
+                    canvasView.invalidate()
+                }
+                override fun onStartTrackingTouch(s: SeekBar?) {}
+                override fun onStopTrackingTouch(s: SeekBar?) {}
+            })
+        }
+
+        val shadowLabel = TextView(context).apply {
+            text = "🌑 2D Cel Drop Shadow Offset: ${layer.vfxDropShadowOffsetPx.toInt()} px"
+            setTextColor(Color.WHITE)
+            setPadding(0, dp(10f), 0, 0)
+        }
+        val shadowSeek = SeekBar(context).apply {
+            max = 18
+            progress = layer.vfxDropShadowOffsetPx.toInt().coerceIn(0, 18)
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(s: SeekBar?, p: Int, fromUser: Boolean) {
+                    layer.vfxDropShadowOffsetPx = p.toFloat()
+                    shadowLabel.text = "🌑 2D Cel Drop Shadow Offset: $p px"
+                    canvasView.project.currentFrame.isCacheDirty = true
+                    canvasView.invalidate()
+                }
+                override fun onStartTrackingTouch(s: SeekBar?) {}
+                override fun onStopTrackingTouch(s: SeekBar?) {}
+            })
+        }
+
+        root.addView(boilLabel)
+        root.addView(boilSeek)
+        root.addView(glowLabel)
+        root.addView(glowSeek)
+        root.addView(shadowLabel)
+        root.addView(shadowSeek)
+
+        AlertDialog.Builder(activity)
+            .setTitle("✨ Non-Destructive 2D VFX — ${layer.name}")
+            .setView(root)
+            .setPositiveButton("Done") { _, _ -> refreshUiState() }
+            .show()
+    }
+
+    private fun showSkeletonRigDialog() {
+        val rig = canvasView.skeletonController
+        val root = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20f), dp(14f), dp(20f), dp(10f))
+        }
+
+        val btnSpawnRig = createStudioButton("🦴 Spawn 2D Humanoid Cut-Out Rig (10 Bones + 2-Bone IK)") {
+            rig.createHumanoid2DRig(canvasView.project.stageWidth, canvasView.project.stageHeight)
+            canvasView.invalidate()
+        }
+        root.addView(
+            btnSpawnRig,
+            LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, dp(38f)).apply { bottomMargin = dp(8f) }
+        )
+
+        val cbShowRig = CheckBox(context).apply {
+            text = "Show 2D Bone Skeleton Overlay on Stage"
+            setTextColor(Color.WHITE)
+            isChecked = rig.isSkeletonVisible
+            setOnCheckedChangeListener { _, checked ->
+                rig.isSkeletonVisible = checked
+                canvasView.invalidate()
+            }
+        }
+        val cbIk = CheckBox(context).apply {
+            text = "Enable 2-Bone Law-of-Cosines IK on Arms & Legs"
+            setTextColor(Color.WHITE)
+            isChecked = rig.useIkMode
+            setOnCheckedChangeListener { _, checked ->
+                rig.useIkMode = checked
+            }
+        }
+        val cbDeform = CheckBox(context).apply {
+            text = "Deform Active Layer 2D Strokes Live When Posing Bones"
+            setTextColor(Color.WHITE)
+            isChecked = rig.deformLayerStrokesWithRig
+            setOnCheckedChangeListener { _, checked ->
+                rig.deformLayerStrokesWithRig = checked
+            }
+        }
+
+        root.addView(cbShowRig)
+        root.addView(cbIk)
+        root.addView(cbDeform)
+
+        val btnClearRig = createStudioButton("🗑 Clear 2D Bone Rig") {
+            rig.clearRig()
+            canvasView.invalidate()
+        }
+        root.addView(
+            btnClearRig,
+            LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, dp(34f)).apply { topMargin = dp(8f) }
+        )
+
+        AlertDialog.Builder(activity)
+            .setTitle("🦴 2D Cut-Out Skeletal Bone Rigging (FK / IK)")
+            .setView(root)
+            .setPositiveButton("Done", null)
+            .show()
+    }
+
+    private fun showLayerTweenAndGraphDialog() {
+        val proj = canvasView.project
+        val layer = proj.activeLayer
+        val frameIdx = proj.currentFrameIndex
+        val eval5 = FloatArray(5)
+        layer.tweenTrack.evaluateAtFrame(frameIdx, eval5)
+
+        val root = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20f), dp(12f), dp(20f), dp(10f))
+        }
+
+        val infoTv = TextView(context).apply {
+            text = "Drag on the stage with 📈 Tween active to move '${layer.name}' at Frame #${frameIdx + 1}!"
+            setTextColor(Color.rgb(190, 210, 240))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            setPadding(0, 0, 0, dp(8f))
+        }
+        root.addView(infoTv)
+
+        val scalePercent = (eval5[2] * 100).toInt()
+        val scaleLabel = TextView(context).apply {
+            text = "Layer Scale at Frame #${frameIdx + 1}: $scalePercent%"
+            setTextColor(Color.WHITE)
+        }
+        val scaleSeek = SeekBar(context).apply {
+            max = 250
+            progress = scalePercent.coerceIn(25, 250)
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(s: SeekBar?, p: Int, fromUser: Boolean) {
+                    val sc = p.coerceAtLeast(20) / 100f
+                    val kf = layer.tweenTrack.getOrCreateKeyframeAt(frameIdx, eval5)
+                    kf.scaleX = sc
+                    kf.scaleY = sc
+                    scaleLabel.text = "Layer Scale at Frame #${frameIdx + 1}: ${p.coerceAtLeast(20)}%"
+                    proj.currentFrame.isCacheDirty = true
+                    refreshUiState()
+                    canvasView.invalidate()
+                }
+                override fun onStartTrackingTouch(s: SeekBar?) {}
+                override fun onStopTrackingTouch(s: SeekBar?) {}
+            })
+        }
+
+        val rotDeg = eval5[4].toInt()
+        val rotLabel = TextView(context).apply {
+            text = "Layer Rotation at Frame #${frameIdx + 1}: ${rotDeg}°"
+            setTextColor(Color.WHITE)
+            setPadding(0, dp(8f), 0, 0)
+        }
+        val rotSeek = SeekBar(context).apply {
+            max = 360
+            progress = (rotDeg + 180).coerceIn(0, 360)
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(s: SeekBar?, p: Int, fromUser: Boolean) {
+                    val deg = (p - 180).toFloat()
+                    val kf = layer.tweenTrack.getOrCreateKeyframeAt(frameIdx, eval5)
+                    kf.rotationDeg = deg
+                    rotLabel.text = "Layer Rotation at Frame #${frameIdx + 1}: ${deg.toInt()}°"
+                    proj.currentFrame.isCacheDirty = true
+                    refreshUiState()
+                    canvasView.invalidate()
+                }
+                override fun onStartTrackingTouch(s: SeekBar?) {}
+                override fun onStopTrackingTouch(s: SeekBar?) {}
+            })
+        }
+
+        root.addView(scaleLabel)
+        root.addView(scaleSeek)
+        root.addView(rotLabel)
+        root.addView(rotSeek)
+
+        val easingTitle = TextView(context).apply {
+            text = "Velocity Graph Easing Curve:"
+            setTextColor(Color.WHITE)
+            setPadding(0, dp(10f), 0, dp(4f))
+        }
+        root.addView(easingTitle)
+
+        val easingRow = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+        }
+        val currentKf = layer.tweenTrack.keyframes.firstOrNull { it.frameIndex == frameIdx }
+        for (easing in TweenEasingType.values()) {
+            val btn = createStudioButton(easing.label) {
+                val kf = layer.tweenTrack.getOrCreateKeyframeAt(frameIdx, eval5)
+                kf.easing = easing
+                proj.currentFrame.isCacheDirty = true
+                refreshUiState()
+                canvasView.invalidate()
+            }
+            styleButton(
+                btn,
+                isHighlighted = (currentKf?.easing == easing),
+                accentColor = Color.rgb(0, 190, 145)
+            )
+            easingRow.addView(
+                btn,
+                LinearLayout.LayoutParams(LayoutParams.WRAP_CONTENT, dp(32f)).apply { marginEnd = dp(5f) }
+            )
+        }
+        val easingScroll = HorizontalScrollView(context).apply {
+            isHorizontalScrollBarEnabled = false
+            addView(easingRow)
+        }
+        root.addView(easingScroll)
+
+        val btnClearKey = createStudioButton("🗑 Remove Layer Keyframe at Frame #${frameIdx + 1}") {
+            layer.tweenTrack.removeKeyframeAt(frameIdx)
+            proj.currentFrame.isCacheDirty = true
+            refreshUiState()
+            canvasView.invalidate()
+        }
+        root.addView(
+            btnClearKey,
+            LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, dp(34f)).apply { topMargin = dp(10f) }
+        )
+
+        AlertDialog.Builder(activity)
+            .setTitle("📈 Layer Keyframe Tween & Easing Graph (${layer.name})")
+            .setView(root)
+            .setPositiveButton("Done", null)
             .show()
     }
 

@@ -12,7 +12,8 @@ import com.animationapp.audio.LipSyncPhoneme
 class AnimationFrame(
     layerCount: Int = 2,
     var exposureHold: Int = 1,
-    var phonemeMarker: LipSyncPhoneme = LipSyncPhoneme.NONE
+    var phonemeMarker: LipSyncPhoneme = LipSyncPhoneme.NONE,
+    var audioAmplitude: Float = 0f
 ) {
     val cels = ArrayList<LayerCel>(layerCount)
 
@@ -97,7 +98,7 @@ class AnimationFrame(
     }
 
     fun duplicate(): AnimationFrame {
-        val dup = AnimationFrame(0, exposureHold, phonemeMarker)
+        val dup = AnimationFrame(0, exposureHold, phonemeMarker, audioAmplitude)
         for (i in 0 until cels.size) {
             dup.cels.add(cels[i].duplicate())
         }

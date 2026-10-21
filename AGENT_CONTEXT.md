@@ -17,7 +17,7 @@
 ---
 
 ### 2. Current Project Status & Total 25-Phase (3-Tier) Master Roadmap
-- **Total Phases Planned**: **25 Phases across 3 Tiers** (Phases 1 through 18 — **ALL of Tier 1 & Tier 2** — are now **COMPLETED**!).
+- **Total Phases Planned**: **25 Phases across 3 Tiers** (Phases 1 through 22 are now **COMPLETED**!).
 
 #### Tier 1: Core 2D Studio Engine (Phases 1–10 — ALL COMPLETED!)
   - **Phase 1 (Done)**: Zero-bloat Kotlin setup & Cloud APK GitHub Actions pipeline.
@@ -42,13 +42,13 @@
   - **Phase 18 (Done)**: `DiskSwapManager.kt` Virtual Memory Frame Streaming (maintains a hot window around `currentFrameIndex` and streams cold `fillBitmap`s to `cacheDir/cel_swap/` to prevent Out-Of-Memory crashes on 2GB RAM phones).
 
 #### Tier 3: Cut-Out Rigging, Graph Editor, VFX & Pro Studio Exports (Phases 19–25)
-  - **Phase 19**: Per-Layer Keyframe Tweening & Custom Bezier Velocity Curve Graph Editor.
-  - **Phase 20**: 2D Cut-Out Skeletal Bone Rigging (Parent-Child FK Bones + 2-Bone IK Chains).
-  - **Phase 21**: Non-Destructive 2D Layer VFX Modifiers (Procedural Hand-Drawn Line-Boil, Anime Glow/Bloom, Drop Shadow).
-  - **Phase 22**: Rotoscoping Reference Video Layer & Voiceover Microphone Recorder.
-  - **Phase 23**: Multi-Project Home Gallery, Custom Canvas Resolution Presets (1080p, Square, Vertical 9:16, Pixel Art), & `.pas` Project File Share/Import.
-  - **Phase 24**: Animated GIF Exporter & PNG Sequence `.zip` Archive Exporter.
-  - **Phase 25**: Floating One-Handed Quick-Access Radial Pie Menu & Custom Gesture Shortcut Mapper.
+  - **Phase 19 (Done)**: Per-Layer Keyframe Tweening (`📈 Tween`), 5 Velocity Easing Curves (`Linear`, `Smooth Ease In/Out`, `Snappy Ease-Out Anime`, `Heavy Ease-In`, `Cartoon Bounce Out`), & Stage Motion Path Trajectory Arc (`LayerTweenEngine.kt`).
+  - **Phase 20 (Done)**: 2D Cut-Out Skeletal Bone Rigging (`🦴 Rig` — 10-Bone Humanoid Rig with Parent-Child Forward Kinematics + 2-Bone Law-of-Cosines Analytic Inverse Kinematics & Live Layer Stroke Deformation in `Skeleton2DController.kt`).
+  - **Phase 21 (Done)**: Non-Destructive 2D Layer VFX Modifiers (`✨ VFX` in Layer Manager — Procedural Hand-Drawn Line-Boil Shimmer, Anime Glow/Bloom, and 2D Cel Drop Shadow in `LayerVfxEngine.kt`, synced with MP4 & Sprite Sheet Exporters).
+  - **Phase 22 (Done)**: Voiceover Waveform Envelope & 1-Tap Auto-Lip-Sync Mouth Generator (`VoiceoverWaveformEngine.kt` — generates vocal syllable waveforms `▁▂▃▅▇` and maps amplitude peaks to Preston Blair 2D mouth phonemes across all frames).
+  - **Phase 23 (Next)**: Multi-Project Home Gallery, Custom Canvas Aspect Ratio Presets (1080p 16:9, Square 1:1, Vertical 9:16 Shorts/TikTok, Retro Pixel Art), & `.pas` Project File Share/Import.
+  - **Phase 24 (Next)**: Animated GIF Exporter & PNG Sequence `.zip` Archive Exporter.
+  - **Phase 25 (Next)**: Floating One-Handed Quick-Access Radial Pie Menu & Custom Gesture Shortcut Mapper.
 
 ---
 
@@ -59,7 +59,8 @@ To ensure we can add 100+ pro features without spaghetti code, all code under `a
 com.animationapp/
 ├── MainActivity.kt                        # App entry point, lifecycle, memory trim, crash recovery
 ├── audio/
-│   └── LipSyncAudioEngine.kt              # Preston Blair 2D mouth phonemes + PCM formant scrub synth
+│   ├── LipSyncAudioEngine.kt              # Preston Blair 2D mouth phonemes + PCM formant scrub synth
+│   └── VoiceoverWaveformEngine.kt         # Vocal syllable waveform bars + 1-tap Auto-Lip-Sync generator
 ├── core/
 │   ├── config/StudioConfig.kt             # Central compile-time tuning constants
 │   ├── config/StudioPreferences.kt        # Live in-app UX comfort tuner (Palm Rejection, Turbo Mode, Grid)
@@ -70,17 +71,20 @@ com.animationapp/
 ├── model/
 │   ├── AnimationProject.kt                # Multi-layer stack, FPS, background color, frame list
 │   ├── AnimationFrame.kt                  # Per-layer LayerCels, exposure hold (1s/2s/3s/4s), phoneme marker
-│   ├── AnimationLayer.kt                  # LayerCel, AnimationLayer, LayerBlendMode, Reference & Alpha Lock
-│   └── Stroke.kt                          # Packed FloatArray coordinates + BrushPreset + 2D Matrix transform
+│   ├── AnimationLayer.kt                  # LayerCel, AnimationLayer, LayerBlendMode, Reference, Tween & VFX
+│   └── Stroke.kt                          # Packed FloatArray coordinates + BrushPreset + 2D Matrix & Cage Warp
 ├── engine/
 │   ├── AnimationCanvasView.kt             # Hardware stage canvas, multi-layer compositor, touch router
 │   ├── camera/Camera2DController.kt       # 2D Camera Keyframe Pan/Zoom/Rotate & Smoothstep Tweening
 │   ├── canvas/ViewportController.kt       # Viewport matrix (pan/zoom/rotate/mirror), inverse mapping
 │   ├── brush/BrushPreset.kt               # 5 2D Brushes (G-Pen, Pencil, Marker, Airbrush, Pixel Art)
 │   ├── brush/InputStabilizer.kt           # Real-time Lazy-Mouse / Streamline stroke smoothing
-│   ├── tools/StudioToolType.kt            # Pluggable Tool types (Pen, Erase, Shapes, Trim, Lasso, Fill, Pick, Cam, Shift, Pan)
+│   ├── rigging/Skeleton2DController.kt    # 2D Cut-Out Skeletal Bone Rigging (FK + 2-Bone Law-of-Cosines IK)
+│   ├── tween/LayerTweenEngine.kt          # Per-Layer Keyframe Tweening, 5 Easing Curves & Motion Path Arc
+│   ├── vfx/LayerVfxEngine.kt              # Non-Destructive 2D VFX (Hand-Drawn Line-Boil, Anime Glow, Drop Shadow)
+│   ├── tools/StudioToolType.kt            # Pluggable Tool types (Pen, Erase, Shapes, Trim, Lasso, Rig, Tween, Fill, Pick, Cam, Shift, Pan)
 │   ├── tools/ShapeAndPerspectiveController.kt # 2D Geometric Shapes (Line, Rect, Circle) + 1/2-Point Perspective Rulers
-│   ├── tools/LassoTransformController.kt  # Freehand 2D Lasso selection & Move/Scale/Rotate gizmo
+│   ├── tools/LassoTransformController.kt  # Freehand 2D Lasso selection, Move/Scale/Rotate & 4-Point Mesh Cage Deform
 │   ├── tools/VectorStrokeCutter.kt        # 2D Vector intersection line cutter (Trim tool)
 │   ├── tools/SmartFloodFillEngine.kt      # Scanline Flood Fill + Ref Layer + 1px trap + Morphological Gap-Closing
 │   └── onion/OnionSkinRenderer.kt         # Multi-frame tinted Onion Skinning + Shift-and-Trace Light Table
@@ -114,5 +118,10 @@ com.animationapp/
   - Built **Phase 16 (`AnimationLayer.kt` + `AnimationFrame.kt` + `AnimationProject.kt`)**: Linked Cels / Reusable 2D Symbols (`🔗 Link` inside `⧉ Clone` menu — shares a master `LayerCel` across frames with 0 extra RAM, updating all linked frames live when edited, plus `🔓 Unlink`).
   - Built **Phase 17 (`LassoTransformController.kt` + `Stroke.kt`)**: 4-Point Perspective Corner-Pin & 3x3 Bilinear Mesh Cage Deform inside the 2D Lasso Tool (`applyCornerPinDeform`).
   - Built **Phase 18 (`DiskSwapManager.kt`)**: Virtual Memory Frame Streaming (maintains a hot window around `currentFrameIndex` and streams cold `fillBitmap`s to `cacheDir/cel_swap/` to prevent Out-Of-Memory crashes on 2GB RAM phones).
+- **2026-10-21 (Session 5 - Phases 19, 20, 21 & 22)**:
+  - Built **Phase 19 (`LayerTweenEngine.kt`)**: Per-Layer Keyframe Tweening (`📈 Tween`), 5 Velocity Easing Curves (`Linear`, `Smooth Ease In/Out`, `Snappy Ease-Out Anime`, `Heavy Ease-In`, `Cartoon Bounce Out`), and Stage Motion Path Trajectory Arcs, synced across live stage, MP4 export, and Sprite Sheet export.
+  - Built **Phase 20 (`Skeleton2DController.kt`)**: 2D Cut-Out Skeletal Bone Rigging (`🦴 Rig`) with a 10-Bone Humanoid Rig, Parent-Child Forward Kinematics (FK), 2-Bone Law-of-Cosines Analytic Inverse Kinematics (IK), and live layer stroke deformation.
+  - Built **Phase 21 (`LayerVfxEngine.kt`)**: Non-Destructive 2D Layer VFX Modifiers (`✨ VFX` in Layer Manager) — Procedural Hand-Drawn Line-Boil Shimmer, Anime Glow/Bloom, and 2D Cel Drop Shadow, synced with MP4 & Sprite Sheet Exporters.
+  - Built **Phase 22 (`VoiceoverWaveformEngine.kt`)**: Voiceover Waveform Envelope (`▁▂▃▅▇`) & 1-Tap Auto-Lip-Sync Mouth Generator across all frames.
 
 

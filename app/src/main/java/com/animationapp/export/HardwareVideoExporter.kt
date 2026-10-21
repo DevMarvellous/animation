@@ -17,6 +17,8 @@ import android.os.Environment
 import android.provider.MediaStore
 import com.animationapp.core.diagnostics.CrashReporter
 import com.animationapp.core.storage.DiskSwapManager
+import com.animationapp.engine.vfx.LayerVfxEngine
+import com.animationapp.model.AnimationLayer
 import com.animationapp.model.AnimationProject
 import com.animationapp.model.LayerCel
 import com.animationapp.model.Stroke
@@ -111,6 +113,7 @@ object HardwareVideoExporter {
             // Loop at least 3 times if animation is very short (< 12 frames) so social media players play it cleanly
             val totalRawFrames = project.frames.size
             val repeatLoops = if (totalRawFrames in 1..8) 3 else 1
+            val tweenScratch5 = FloatArray(5)
 
             for (loop in 0 until repeatLoops) {
                 for (fIdx in 0 until totalRawFrames) {
@@ -129,14 +132,22 @@ object HardwareVideoExporter {
                                 if (!cel.hasContent()) continue
 
                                 scratchCanvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
+                                scratchCanvas.save()
+                                if (layer.tweenTrack.hasKeyframes()) {
+                                    scratchCanvas.concat(
+                                        layer.tweenTrack.buildLayerMatrix(fIdx, width, height, tweenScratch5)
+                                    )
+                                }
                                 renderCel(
                                     scratchCanvas,
                                     cel,
-                                    layer.isAlphaLocked,
+                                    layer,
+                                    fIdx * 10 + hold,
                                     strokePaint,
                                     eraserXfer,
                                     alphaLockXfer
                                 )
+                                scratchCanvas.restore()
                                 layer.syncCompositingPaint()
                                 surfaceCanvas.drawBitmap(scratchLayerBmp, 0f, 0f, layer.compositingPaint)
                             }
@@ -177,7 +188,8 @@ object HardwareVideoExporter {
     private fun renderCel(
         targetCanvas: Canvas,
         cel: LayerCel,
-        isAlphaLocked: Boolean,
+        layer: AnimationLayer,
+        boilSeed: Int,
         strokePaint: Paint,
         eraserXfer: PorterDuffXfermode,
         alphaLockXfer: PorterDuffXfermode
@@ -185,20 +197,30 @@ object HardwareVideoExporter {
         DiskSwapManager.restoreCelFromDiskIfNeeded(cel)?.let { bmp ->
             if (!bmp.isRecycled) targetCanvas.drawBitmap(bmp, 0f, 0f, null)
         }
+        val isAlphaLocked = layer.isAlphaLocked
         val strokes = cel.strokes
         for (i in 0 until strokes.size) {
             val s: Stroke = strokes[i]
+            val effectivePath = if (layer.vfxLineBoilPx > 0.1f) {
+                LayerVfxEngine.getEffectiveStrokePath(s, layer, boilSeed)
+            } else {
+                s.renderPath
+            }
+            if (layer.hasActiveVfx()) {
+                LayerVfxEngine.drawStrokeUnderlayVfx(targetCanvas, s, effectivePath, layer)
+            }
             if (s.isEraser) {
                 strokePaint.xfermode = eraserXfer
                 strokePaint.strokeWidth = s.baseSize
                 strokePaint.color = Color.TRANSPARENT
+                strokePaint.maskFilter = null
             } else {
+                s.brushPreset.applyToPaint(strokePaint, s.color, s.baseSize)
                 strokePaint.xfermode = if (isAlphaLocked && i > 0) alphaLockXfer else null
-                strokePaint.color = s.color
-                strokePaint.strokeWidth = s.baseSize
             }
-            targetCanvas.drawPath(s.renderPath, strokePaint)
+            targetCanvas.drawPath(effectivePath, strokePaint)
             strokePaint.xfermode = null
+            strokePaint.maskFilter = null
         }
     }
 

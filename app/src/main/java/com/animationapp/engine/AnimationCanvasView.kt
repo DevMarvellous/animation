@@ -23,11 +23,14 @@ import com.animationapp.engine.brush.InputStabilizer
 import com.animationapp.engine.camera.Camera2DController
 import com.animationapp.engine.canvas.ViewportController
 import com.animationapp.engine.onion.OnionSkinRenderer
+import com.animationapp.engine.rigging.Skeleton2DController
 import com.animationapp.engine.tools.LassoTransformController
 import com.animationapp.engine.tools.ShapeAndPerspectiveController
 import com.animationapp.engine.tools.SmartFloodFillEngine
 import com.animationapp.engine.tools.StudioToolType
 import com.animationapp.engine.tools.VectorStrokeCutter
+import com.animationapp.engine.vfx.LayerVfxEngine
+import com.animationapp.model.AnimationLayer
 import com.animationapp.model.AnimationProject
 import com.animationapp.model.LayerCel
 import com.animationapp.model.Stroke
@@ -35,7 +38,7 @@ import kotlin.math.atan2
 import kotlin.math.hypot
 
 /**
- * Hardware-accelerated, zero-allocation Multi-Layer 2D Animation Stage & Viewport Engine (Phases 12–15).
+ * Hardware-accelerated, zero-allocation Multi-Layer 2D Animation Stage & Viewport Engine (Phases 19–22).
  */
 class AnimationCanvasView(
     context: Context,
@@ -50,6 +53,7 @@ class AnimationCanvasView(
     val onionSkinRenderer = OnionSkinRenderer()
     val lassoController = LassoTransformController()
     val shapeController = ShapeAndPerspectiveController(project.stageWidth, project.stageHeight)
+    val skeletonController = Skeleton2DController()
     val camera2D = Camera2DController()
     val performanceHud = PerformanceHud()
 
@@ -80,6 +84,8 @@ class AnimationCanvasView(
     private var lastToolDragX = 0f
     private var lastToolDragY = 0f
     private val camEvalScratch = FloatArray(4)
+    private val layerTweenScratch5 = FloatArray(5)
+    private var boilTickCounter = 0
 
     // Offscreen Composite Bitmap Cache & Scratch Layer Bitmap
     private var compositeCacheBitmap: Bitmap? = null
@@ -177,6 +183,7 @@ class AnimationCanvasView(
         compCanvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
 
         val layers = project.layers
+        val fIdx = project.currentFrameIndex
         for (lIdx in 0 until layers.size) {
             val layer = layers[lIdx]
             if (!layer.isVisible) continue
@@ -185,7 +192,18 @@ class AnimationCanvasView(
             if (!cel.hasContent()) continue
 
             scratchCanvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
-            renderCelOntoCanvas(scratchCanvas, cel, layer.isAlphaLocked)
+            scratchCanvas.save()
+            if (layer.tweenTrack.hasKeyframes()) {
+                val tweenMat = layer.tweenTrack.buildLayerMatrix(
+                    frameIndex = fIdx,
+                    stageWidth = project.stageWidth,
+                    stageHeight = project.stageHeight,
+                    evalScratch5 = layerTweenScratch5
+                )
+                scratchCanvas.concat(tweenMat)
+            }
+            renderCelOntoCanvas(scratchCanvas, cel, layer, fIdx + boilTickCounter)
+            scratchCanvas.restore()
 
             layer.syncCompositingPaint()
             compCanvas.drawBitmap(scratchBmp, 0f, 0f, layer.compositingPaint)
@@ -193,23 +211,41 @@ class AnimationCanvasView(
         frame.isCacheDirty = false
     }
 
-    private fun renderCelOntoCanvas(targetCanvas: Canvas, cel: LayerCel, isAlphaLocked: Boolean) {
+    private fun renderCelOntoCanvas(
+        targetCanvas: Canvas,
+        cel: LayerCel,
+        layer: AnimationLayer? = null,
+        boilSeedFrame: Int = 0
+    ) {
         DiskSwapManager.restoreCelFromDiskIfNeeded(cel)?.let { fillBmp ->
             if (!fillBmp.isRecycled) {
                 targetCanvas.drawBitmap(fillBmp, 0f, 0f, null)
             }
         }
+        val isAlphaLocked = layer?.isAlphaLocked ?: false
         val strokes = cel.strokes
         for (i in 0 until strokes.size) {
-            drawStrokeOntoCanvas(targetCanvas, strokes[i], isAlphaLocked && i > 0)
+            drawStrokeOntoCanvas(targetCanvas, strokes[i], isAlphaLocked && i > 0, layer, boilSeedFrame)
         }
     }
 
     private fun drawStrokeOntoCanvas(
         targetCanvas: Canvas,
         stroke: Stroke,
-        useAlphaLock: Boolean = false
+        useAlphaLock: Boolean = false,
+        layer: AnimationLayer? = null,
+        boilSeedFrame: Int = 0
     ) {
+        val effectivePath = if (layer != null && layer.vfxLineBoilPx > 0.1f) {
+            LayerVfxEngine.getEffectiveStrokePath(stroke, layer, boilSeedFrame)
+        } else {
+            stroke.renderPath
+        }
+
+        if (layer != null && layer.hasActiveVfx()) {
+            LayerVfxEngine.drawStrokeUnderlayVfx(targetCanvas, stroke, effectivePath, layer)
+        }
+
         if (stroke.isEraser) {
             strokePaint.xfermode = eraserXfermode
             strokePaint.strokeWidth = stroke.baseSize
@@ -223,7 +259,7 @@ class AnimationCanvasView(
             }
             strokePaint.xfermode = if (useAlphaLock) alphaLockXfermode else null
         }
-        targetCanvas.drawPath(stroke.renderPath, strokePaint)
+        targetCanvas.drawPath(effectivePath, strokePaint)
         strokePaint.xfermode = null
         strokePaint.maskFilter = null
     }
@@ -242,6 +278,7 @@ class AnimationCanvasView(
             val tickDurationMs = (1000L / project.fps.coerceAtLeast(1))
             if (now - lastPlaybackStepTimeMs >= tickDurationMs) {
                 lastPlaybackStepTimeMs = now
+                boilTickCounter++
                 currentHoldTick++
                 if (currentHoldTick >= project.currentFrame.exposureHold) {
                     currentHoldTick = 0
@@ -249,6 +286,15 @@ class AnimationCanvasView(
                     project.currentFrame.isCacheDirty = true
                     LipSyncAudioEngine.playFrameScrubSlice(project.currentFrame.phonemeMarker)
                     onStateChanged?.invoke()
+                } else {
+                    // If any visible layer has Line-Boil VFX enabled, refresh composite cache even on held ticks!
+                    for (i in 0 until project.layers.size) {
+                        val l = project.layers[i]
+                        if (l.isVisible && l.vfxLineBoilPx > 0.1f) {
+                            project.currentFrame.isCacheDirty = true
+                            break
+                        }
+                    }
                 }
             }
         }
@@ -317,6 +363,21 @@ class AnimationCanvasView(
         // 9. Draw Freehand Lasso & Transform Bounding Box Gizmo if active
         if (activeTool == StudioToolType.LASSO) {
             lassoController.drawOverlay(canvas)
+        }
+
+        // 9b. Draw Per-Layer Keyframe Motion Path Arc if editing Tween or active layer has keyframes
+        if (!isPlaying && (activeTool == StudioToolType.LAYER_TWEEN || project.activeLayer.tweenTrack.hasKeyframes())) {
+            project.activeLayer.tweenTrack.drawMotionPathOverlay(
+                canvas = canvas,
+                stageWidth = project.stageWidth,
+                stageHeight = project.stageHeight,
+                evalScratch5 = layerTweenScratch5
+            )
+        }
+
+        // 9c. Draw 2D Cut-Out Skeleton Rig if active or visible
+        if (!isPlaying && (activeTool == StudioToolType.BONE_RIG || skeletonController.isSkeletonVisible)) {
+            skeletonController.drawSkeletonOverlay(canvas)
         }
 
         // 10. Draw 2D Camera Viewfinder frame when editing in 2D Camera mode
@@ -539,6 +600,62 @@ class AnimationCanvasView(
             return true
         }
 
+        // Handle Phase 20: 2D Cut-Out Skeletal Bone Rigging Tool (`🦴 Rig`)
+        if (activeTool == StudioToolType.BONE_RIG) {
+            when (action) {
+                MotionEvent.ACTION_DOWN -> {
+                    skeletonController.onTouchDown(stageX, stageY)
+                    invalidate()
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    if (skeletonController.onTouchMove(stageX, stageY, project.activeCel.strokes)) {
+                        project.currentFrame.isCacheDirty = true
+                    }
+                    invalidate()
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    skeletonController.onTouchUp()
+                    project.currentFrame.isCacheDirty = true
+                    triggerAutosave()
+                    onStateChanged?.invoke()
+                    invalidate()
+                }
+            }
+            return true
+        }
+
+        // Handle Phase 19: Per-Layer Keyframe Tweening Drag Tool (`📈 Tween`)
+        if (activeTool == StudioToolType.LAYER_TWEEN) {
+            val track = currentLayer.tweenTrack
+            when (action) {
+                MotionEvent.ACTION_DOWN -> {
+                    lastToolDragX = stageX
+                    lastToolDragY = stageY
+                    track.getOrCreateKeyframeAt(project.currentFrameIndex, layerTweenScratch5)
+                    project.currentFrame.isCacheDirty = true
+                    onStateChanged?.invoke()
+                    invalidate()
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val dx = stageX - lastToolDragX
+                    val dy = stageY - lastToolDragY
+                    val kf = track.getOrCreateKeyframeAt(project.currentFrameIndex, layerTweenScratch5)
+                    kf.offsetX += dx
+                    kf.offsetY += dy
+                    lastToolDragX = stageX
+                    lastToolDragY = stageY
+                    project.currentFrame.isCacheDirty = true
+                    invalidate()
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    triggerAutosave()
+                    onStateChanged?.invoke()
+                    invalidate()
+                }
+            }
+            return true
+        }
+
         // Handle Instant Single-Tap Tools: EYEDROPPER & FILL_BUCKET
         if (activeTool == StudioToolType.EYEDROPPER) {
             if (action == MotionEvent.ACTION_DOWN || action == MotionEvent.ACTION_MOVE) {
@@ -685,7 +802,7 @@ class AnimationCanvasView(
         val refLayerIdx = project.getReferenceLayerIndex()
         val refCel = project.currentFrame.getCel(refLayerIdx)
         scratchCanvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
-        renderCelOntoCanvas(scratchCanvas, refCel, isAlphaLocked = false)
+        renderCelOntoCanvas(scratchCanvas, refCel, layer = null, boilSeedFrame = 0)
 
         val targetCel = project.activeCel
         targetCel.fillBitmap = SmartFloodFillEngine.performFloodFill(

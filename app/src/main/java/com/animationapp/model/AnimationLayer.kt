@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.graphics.Paint
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffXfermode
+import com.animationapp.engine.tween.LayerTweenTrack
 
 /**
  * Hardware-accelerated layer blend modes.
@@ -115,9 +116,17 @@ class AnimationLayer(
     var isAlphaLocked: Boolean = false,
     var isReferenceLayer: Boolean = false,
     var opacity: Float = 1.0f,
-    var blendMode: LayerBlendMode = LayerBlendMode.NORMAL
+    var blendMode: LayerBlendMode = LayerBlendMode.NORMAL,
+    var vfxLineBoilPx: Float = 0f,
+    var vfxGlowRadiusPx: Float = 0f,
+    var vfxDropShadowOffsetPx: Float = 0f
 ) {
+    val tweenTrack = LayerTweenTrack()
     val compositingPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+
+    fun hasActiveVfx(): Boolean {
+        return vfxLineBoilPx > 0.1f || vfxGlowRadiusPx > 0.5f || vfxDropShadowOffsetPx > 0.5f
+    }
 
     fun syncCompositingPaint() {
         compositingPaint.alpha = (opacity.coerceIn(0f, 1f) * 255f).toInt()

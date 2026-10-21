@@ -9,6 +9,8 @@ enum class StudioToolType(val label: String) {
     SHAPE_GUIDE("Shapes"),
     VECTOR_CUTTER("Trim"),
     LASSO("Lasso"),
+    BONE_RIG("2D Rig"),
+    LAYER_TWEEN("Tween"),
     FILL_BUCKET("Fill"),
     EYEDROPPER("Picker"),
     CAMERA_2D("2D Cam"),
