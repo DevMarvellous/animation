@@ -141,6 +141,12 @@ com.animationapp/
   - **Radial Pie Menu Auto-Z-Index (`RadialPieMenuView.kt`)**: Added automatic `bringToFront()` on expansion so the floating thumb puck and radial pie slices are never obscured.
   - **PAS4 Atomic Autosave (`CrashSafeAutosave.kt`)**: 100% backward and forward compatible with PAS3 and PAS4 formats.
   - **Cloud Build Verification**: GitHub Actions build run `39608689371` completed 100% **SUCCESS** with `ProAnimationStudio-Release-APK` (102 KB) and `ProAnimationStudio-Debug-APK` (1014 KB).
+- **2026-10-21 (Session 7 - Native Branding, Cutout Notch Edge-to-Edge, & Safe Exit Polish)**:
+  - **Custom Vector Launcher Icons (`ic_launcher.xml` & `ic_launcher_round.xml`)**: Midnight studio canvas `#151824`, cyan halo `#00D2FF`, onion-skin trajectory dots, pro G-pen nib, and gold animation star sparkle `#FFD700`.
+  - **Manifest Branding & Permissions (`AndroidManifest.xml`)**: Added `android:icon="@drawable/ic_launcher"`, `android:roundIcon="@drawable/ic_launcher_round"`, and scoped storage maxSdkVersion="28" permissions for legacy Android 8/9 devices.
+  - **Display Cutout Notch Support (`MainActivity.kt`)**: `LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES` for true edge-to-edge drawing past camera punch-holes and notches.
+  - **Screen Keep-Awake (`MainActivity.kt`)**: `FLAG_KEEP_SCREEN_ON` so screen never dims or locks during drawing or animating sessions.
+  - **Lifecycle Safe Exit & Immediate Autosave (`MainActivity.kt`)**: Immediate atomic autosave in `onPause()` and safe exit confirmation dialog in `onBackPressed()`.
 
 
 
