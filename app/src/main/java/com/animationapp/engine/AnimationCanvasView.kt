@@ -1119,6 +1119,26 @@ class AnimationCanvasView(
         invalidate()
     }
 
+    fun clearActiveCel() {
+        lassoController.clearSelection()
+        project.activeCel.clear()
+        project.currentFrame.isCacheDirty = true
+        triggerAutosave()
+        onStateChanged?.invoke()
+        invalidate()
+    }
+
+    fun clearAllCelsOnCurrentFrame() {
+        lassoController.clearSelection()
+        for (i in 0 until project.layers.size) {
+            project.currentFrame.getCel(i).clear()
+        }
+        project.currentFrame.isCacheDirty = true
+        triggerAutosave()
+        onStateChanged?.invoke()
+        invalidate()
+    }
+
     fun deleteCurrentFrame() {
         pausePlayback()
         lassoController.clearSelection()

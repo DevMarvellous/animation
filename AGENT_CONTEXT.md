@@ -148,10 +148,18 @@ com.animationapp/
   - **Screen Keep-Awake (`MainActivity.kt`)**: `FLAG_KEEP_SCREEN_ON` so screen never dims or locks during drawing or animating sessions.
   - **Lifecycle Safe Exit & Immediate Autosave (`MainActivity.kt`)**: Immediate atomic autosave in `onPause()` and safe exit confirmation dialog in `onBackPressed()`.
   - **Verified Clean Cloud Build (`39615474065` - Commit `18b609e`)**: Completed 100% **SUCCESS** with `ProAnimationStudio-Release-APK` (102 KB, ID: `12350974604`) and `ProAnimationStudio-Debug-APK` (1,000 KB, ID: `12351279439`).
-- **2026-10-21 (Session 8 - Phase 26 Expansion Trio: Gradient Tool, Real Audio Import, & Cartoon Text)**:
+- **2026-10-21 (Session 8 - Phase 26 Expansion Trio & Usability Polish)**:
   - **Linear & Radial 2D Gradient Tool (`GradientToolController.kt`)**: Hardware GPU shader tool (`🌈 Grad`) supporting 2-point angle linear and center-radius radial gradients. Supports Lasso polygon boundary clipping, Alpha-Lock cel shading (`SRC_ATOP`), and bakes directly into `LayerCel.fillBitmap` with zero heap bloat and full exporter sync.
   - **Real External Audio Import & Dialogue Sync (`ExternalAudioImportEngine.kt`)**: Uses Android's native `MediaExtractor` and `MediaCodec` to decode `.mp3`, `.wav`, `.m4a`, `.aac` into a downsampled acoustic amplitude envelope (~800 bytes RAM for 200 frames). Plugs directly into `AnimationFrame.audioAmplitude` so timeline pills display true voice waveforms, auto-assigns Preston Blair mouth phonemes, and synchronizes real-time `MediaPlayer` audio playback and frame scrubbing.
   - **2D Cartoon Text & Onomatopoeia Tool (`TextToolController.kt`)**: Converts text ("POW!", "BOOM!", dialogue subtitles, titles) into first-class vector `Stroke`s via `Paint.getTextPath` and dense `PathMeasure` contour sampling. Fully compatible with Lasso transforms, 4-Point Perspective Corner-Pin, and 3x3 Mesh Cage deform.
+  - **Feature Detoggling & Timeline Polish (`StudioWorkspaceLayout.kt` + `AnimationCanvasView.kt`)**:
+    - **Symmetry Detoggle**: Visible `🦋 Sym: ON` / `🦋 Sym: OFF` state indicator with instant Toast confirmation.
+    - **Loop Range Detoggle**: 1-tap `🚫 Detoggle Loop` in dialog and quick-prompt on `🔁 [1-8]` button to immediately revert to playing all frames.
+    - **First/Last Frame Fast Jump**: Long-press `⏮` jumps straight to Frame 1 (Start); long-press `⏭` jumps straight to Last Frame (End).
+    - **Exposure Hold Reset**: Long-press `⏱` immediately resets hold back to 1s.
+    - **Cel Clearing Without Breaking Timing**: Added `clearActiveCel()` and `clearAllCelsOnCurrentFrame()` in `AnimationCanvasView.kt` and wired into long-press `🗑 Del` and `⧉ Clone` menu, letting animators blank out drawings without shifting downstream frames.
+    - **1-Tap Lasso Deselect**: Tapping `⬠ Lasso` while active deselects the selection without having to switch tools.
+    - **Light Table Reset**: Tapping `💡 Shift` while active immediately resets light-table offset back to center.
 
 
 
