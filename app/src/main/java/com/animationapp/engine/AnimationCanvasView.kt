@@ -1087,6 +1087,43 @@ class AnimationCanvasView(
         invalidate()
     }
 
+    fun addBlankFrameBeforeCurrent() {
+        pausePlayback()
+        lassoController.clearSelection()
+        project.addBlankFrameBeforeCurrent()
+        DiskSwapManager.maintainHotFrameWindow(context, project)
+        project.currentFrame.isCacheDirty = true
+        triggerAutosave()
+        onStateChanged?.invoke()
+        invalidate()
+    }
+
+    fun insertMultipleFrames(count: Int) {
+        pausePlayback()
+        lassoController.clearSelection()
+        project.insertMultipleBlankFramesAfterCurrent(count)
+        DiskSwapManager.maintainHotFrameWindow(context, project)
+        project.currentFrame.isCacheDirty = true
+        triggerAutosave()
+        onStateChanged?.invoke()
+        invalidate()
+    }
+
+    fun setAllFramesExposureHold(hold: Int) {
+        pausePlayback()
+        project.setAllFramesExposureHold(hold)
+        triggerAutosave()
+        onStateChanged?.invoke()
+        invalidate()
+    }
+
+    fun toggleReferenceLayer(index: Int) {
+        project.toggleReferenceLayer(index)
+        triggerAutosave()
+        onStateChanged?.invoke()
+        invalidate()
+    }
+
     fun duplicateCurrentFrame() {
         pausePlayback()
         lassoController.clearSelection()

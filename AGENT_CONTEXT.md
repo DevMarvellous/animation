@@ -160,6 +160,28 @@ com.animationapp/
     - **Cel Clearing Without Breaking Timing**: Added `clearActiveCel()` and `clearAllCelsOnCurrentFrame()` in `AnimationCanvasView.kt` and wired into long-press `🗑 Del` and `⧉ Clone` menu, letting animators blank out drawings without shifting downstream frames.
     - **1-Tap Lasso Deselect**: Tapping `⬠ Lasso` while active deselects the selection without having to switch tools.
     - **Light Table Reset**: Tapping `💡 Shift` while active immediately resets light-table offset back to center.
+  - **Verified Clean Cloud Build (`39688178134` - Commit `43b123f`)**: Completed 100% **SUCCESS** with `ProAnimationStudio-Release-APK` (116 KB, ID: `12387560834`) and `ProAnimationStudio-Debug-APK` (1.04 MB, ID: `12387600772`).
+- **2026-10-22 (Session 9 - Comprehensive Feature Detoggling & Time Frames Studio Engine)**:
+  - **1-Tap Tool Detoggling Across All Utilities**: Tapping any active utility tool (`⌫ Erase`, `📐 Shapes`, `✂ Trim`, `⬠ Lasso`, `🦴 Rig`, `📈 Tween`, `🪣 Fill`, `🌈 Grad`, `🔤 Text`, `💧 Pick`, `🎥 Cam`, `💡 Shift`, `✥ Pan`) immediately detoggles it and returns to `✏ Pen`, preventing accidental lock-in.
+  - **Dedicated Time Frames & Timing Studio Dialog (`showTimeFramesStudioDialog()`)**:
+    - Complete inspection and control of timeline time: displays current frame / total frames, elapsed seconds, total duration seconds, FPS, and loop status.
+    - 1-tap batch exposure holds: `Animate on 1s (Fluid 24 FPS)`, `Animate on 2s (Classic 12 FPS Anime / Disney)`, `Animate on 3s (Snappy 8 FPS)`.
+    - Time frame insertion: Insert blank frame before current, after current, +5 blank frames, +10 blank frames.
+    - Timeline sliding: Slide frame earlier (left), slide later (right), reverse entire animation order.
+    - Loop brackets: 1-tap `Set In` / `Set Out` and 1-tap loop detoggle.
+    - Cel clearing without shifting timeline timing: active cel or all cels on current frame.
+  - **Dynamic Time Frame Badge (`timeFrameBadge`)**: Placed on timeline bar next to loop and hold controls. Displays live `⏱ CurrentFrame/TotalCount [LoopTag] (CurTime_s / TotalTime_s)`. Tapping opens the Time Frames Studio.
+  - **Top Bar Quick Detoggling & Shortcuts**:
+    - Long-press `🎥 2D Cam`: 1-tap toggles Camera Viewfinder Preview lens mode vs Raw Stage (`[LENS]` badge).
+    - Long-press `Onion: ON/OFF`: Quick dialog to detoggle onion skin or reset light table shift.
+    - Long-press `⛶ Fit`: 1-tap toggles background Grid overlay.
+    - Reference Layer Detoggle: Tapping `⭐Ref` on an active reference layer detoggles it back to normal drawing layer.
+    - Non-Destructive 2D VFX Detoggle: Added `🚫 Detoggle / Turn Off All VFX on Layer` button in `showLayerVfxDialog()`.
+    - Exit buttons in `Shapes`, `Rig`, `Tween`, and `Gradient` dialogs to detoggle directly back to `✏ Pen`.
+  - **Long-Press Timeline Shortcuts**:
+    - Long-press `⏱ 1s`: Quick menu to set current frame to 1s/2s, or set ALL frames to 2s/1s.
+    - Long-press `🔁 Loop`: Instantly detoggles loop range back to playing all frames without opening a dialog.
+    - Long-press `＋ Frame`: Quick menu to insert blank frame before current, after current, or insert 5/10 blank frames.
 
 
 

@@ -81,6 +81,7 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
     private lateinit var exportBtn: TextView
     private lateinit var holdBtn: TextView
     private lateinit var loopBtn: TextView
+    private lateinit var timeFrameBadge: TextView
     private lateinit var sizeLabel: TextView
     private lateinit var activeColorDot: View
     private lateinit var toolButtons: Map<StudioToolType, TextView>
@@ -178,6 +179,34 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
             canvasView.project.isOnionSkinEnabled = !canvasView.project.isOnionSkinEnabled
             refreshUiState()
             canvasView.invalidate()
+        }.apply {
+            setOnLongClickListener {
+                val isOn = canvasView.project.isOnionSkinEnabled
+                val options = arrayOf(
+                    if (isOn) "🚫 Detoggle Onion Skin (Turn OFF)" else "💡 Turn Onion Skin ON",
+                    "💡 Reset Light Table Shift Offset (Center)"
+                )
+                AlertDialog.Builder(activity)
+                    .setTitle("Onion Skin & Light Table Controls")
+                    .setItems(options) { _, which ->
+                        when (which) {
+                            0 -> {
+                                canvasView.project.isOnionSkinEnabled = !canvasView.project.isOnionSkinEnabled
+                                refreshUiState()
+                                canvasView.invalidate()
+                                Toast.makeText(activity, if (canvasView.project.isOnionSkinEnabled) "Onion Skin ON" else "Onion Skin OFF", Toast.LENGTH_SHORT).show()
+                            }
+                            1 -> {
+                                canvasView.onionSkinRenderer.resetShiftOffset()
+                                refreshUiState()
+                                canvasView.invalidate()
+                                Toast.makeText(activity, "Light Table alignment centered", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    }
+                    .show()
+                true
+            }
         }
 
         symBtn = createStudioButton("🦋 Sym: OFF") {
@@ -192,6 +221,18 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
 
         camBtn = createStudioButton("🎥 2D Cam") {
             show2DCameraKeyframeDialog()
+        }.apply {
+            setOnLongClickListener {
+                canvasView.camera2D.isCameraViewActive = !canvasView.camera2D.isCameraViewActive
+                refreshUiState()
+                canvasView.invalidate()
+                Toast.makeText(
+                    activity,
+                    if (canvasView.camera2D.isCameraViewActive) "2D Camera Viewfinder: ON (Camera Lens)" else "2D Camera Viewfinder: OFF (Raw Stage)",
+                    Toast.LENGTH_SHORT
+                ).show()
+                true
+            }
         }
 
         lipSyncBtn = createStudioButton("👄 LipSync") {
@@ -221,6 +262,18 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
 
         val btnFit = createStudioButton("⛶ Fit") {
             canvasView.fitStageToScreen()
+        }.apply {
+            setOnLongClickListener {
+                StudioPreferences.isGridEnabled = !StudioPreferences.isGridEnabled
+                StudioPreferences.save(context)
+                canvasView.invalidate()
+                Toast.makeText(
+                    activity,
+                    if (StudioPreferences.isGridEnabled) "Grid Overlay: ON" else "Grid Overlay: OFF",
+                    Toast.LENGTH_SHORT
+                ).show()
+                true
+            }
         }
 
         fpsBtn = createStudioButton("${canvasView.project.fps} FPS") {
@@ -285,21 +338,47 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
         }
 
         val btnPen = createStudioButton("✏ Pen") { selectTool(StudioToolType.BRUSH) }
-        val btnEraser = createStudioButton("⌫ Erase") { selectTool(StudioToolType.ERASER) }
+        val btnEraser = createStudioButton("⌫ Erase") {
+            if (canvasView.activeTool == StudioToolType.ERASER) {
+                selectTool(StudioToolType.BRUSH)
+                Toast.makeText(activity, "Detoggled to ✏ Pen", Toast.LENGTH_SHORT).show()
+            } else {
+                selectTool(StudioToolType.ERASER)
+            }
+        }
         val btnShapes = createStudioButton("📐 Shapes") {
             if (canvasView.activeTool == StudioToolType.SHAPE_GUIDE) {
-                showShapeAndPerspectiveDialog()
+                selectTool(StudioToolType.BRUSH)
+                Toast.makeText(activity, "Detoggled Shapes -> ✏ Pen", Toast.LENGTH_SHORT).show()
             } else {
                 selectTool(StudioToolType.SHAPE_GUIDE)
                 showShapeAndPerspectiveDialog()
             }
+        }.apply {
+            setOnLongClickListener {
+                showShapeAndPerspectiveDialog()
+                true
+            }
         }
-        val btnCutter = createStudioButton("✂ Trim") { selectTool(StudioToolType.VECTOR_CUTTER) }
+        val btnCutter = createStudioButton("✂ Trim") {
+            if (canvasView.activeTool == StudioToolType.VECTOR_CUTTER) {
+                selectTool(StudioToolType.BRUSH)
+                Toast.makeText(activity, "Detoggled Trim -> ✏ Pen", Toast.LENGTH_SHORT).show()
+            } else {
+                selectTool(StudioToolType.VECTOR_CUTTER)
+                Toast.makeText(activity, "Draw across line intersections to cut segments", Toast.LENGTH_SHORT).show()
+            }
+        }
         val btnLasso = createStudioButton("⬠ Lasso") {
-            if (canvasView.activeTool == StudioToolType.LASSO && canvasView.lassoController.hasSelection()) {
-                canvasView.lassoController.clearSelection()
-                canvasView.invalidate()
-                Toast.makeText(activity, "Lasso Selection Cleared", Toast.LENGTH_SHORT).show()
+            if (canvasView.activeTool == StudioToolType.LASSO) {
+                if (canvasView.lassoController.hasSelection()) {
+                    canvasView.lassoController.clearSelection()
+                    canvasView.invalidate()
+                    Toast.makeText(activity, "Lasso Deselected (tap again to switch to Pen)", Toast.LENGTH_SHORT).show()
+                } else {
+                    selectTool(StudioToolType.BRUSH)
+                    Toast.makeText(activity, "Detoggled Lasso -> ✏ Pen", Toast.LENGTH_SHORT).show()
+                }
             } else {
                 selectTool(StudioToolType.LASSO)
             }
@@ -314,40 +393,120 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
             }
         }
         val btnRig = createStudioButton("🦴 Rig") {
-            selectTool(StudioToolType.BONE_RIG)
-            showSkeletonRigDialog()
+            if (canvasView.activeTool == StudioToolType.BONE_RIG) {
+                selectTool(StudioToolType.BRUSH)
+                Toast.makeText(activity, "Detoggled Rig -> ✏ Pen", Toast.LENGTH_SHORT).show()
+            } else {
+                selectTool(StudioToolType.BONE_RIG)
+                showSkeletonRigDialog()
+            }
+        }.apply {
+            setOnLongClickListener {
+                showSkeletonRigDialog()
+                true
+            }
         }
         val btnTween = createStudioButton("📈 Tween") {
-            selectTool(StudioToolType.LAYER_TWEEN)
-            showLayerTweenAndGraphDialog()
+            if (canvasView.activeTool == StudioToolType.LAYER_TWEEN) {
+                selectTool(StudioToolType.BRUSH)
+                Toast.makeText(activity, "Detoggled Tween -> ✏ Pen", Toast.LENGTH_SHORT).show()
+            } else {
+                selectTool(StudioToolType.LAYER_TWEEN)
+                showLayerTweenAndGraphDialog()
+            }
+        }.apply {
+            setOnLongClickListener {
+                showLayerTweenAndGraphDialog()
+                true
+            }
         }
-        val btnBucket = createStudioButton("🪣 Fill") { selectTool(StudioToolType.FILL_BUCKET) }
+        val btnBucket = createStudioButton("🪣 Fill") {
+            if (canvasView.activeTool == StudioToolType.FILL_BUCKET) {
+                selectTool(StudioToolType.BRUSH)
+                Toast.makeText(activity, "Detoggled Fill -> ✏ Pen", Toast.LENGTH_SHORT).show()
+            } else {
+                selectTool(StudioToolType.FILL_BUCKET)
+            }
+        }
         val btnGradient = createStudioButton("🌈 Grad") {
             if (canvasView.activeTool == StudioToolType.GRADIENT) {
-                showGradientOptionsDialog()
+                selectTool(StudioToolType.BRUSH)
+                canvasView.gradientController.cancelDrag()
+                canvasView.invalidate()
+                Toast.makeText(activity, "Detoggled Gradient -> ✏ Pen", Toast.LENGTH_SHORT).show()
             } else {
                 selectTool(StudioToolType.GRADIENT)
-                Toast.makeText(activity, "Drag across canvas to fill gradient (tap Grad again for options)", Toast.LENGTH_SHORT).show()
+                Toast.makeText(activity, "Drag across canvas to fill gradient (Long-press Grad for options)", Toast.LENGTH_SHORT).show()
+            }
+        }.apply {
+            setOnLongClickListener {
+                showGradientOptionsDialog()
+                true
             }
         }
         val btnText = createStudioButton("🔤 Text") {
-            selectTool(StudioToolType.TEXT)
-            Toast.makeText(activity, "Tap anywhere on stage to place cartoon text", Toast.LENGTH_SHORT).show()
-        }
-        val btnPicker = createStudioButton("💧 Pick") { selectTool(StudioToolType.EYEDROPPER) }
-        val btnCamTool = createStudioButton("🎥 Cam") { selectTool(StudioToolType.CAMERA_2D) }
-        val btnShift = createStudioButton("💡 Shift") {
-            if (canvasView.activeTool == StudioToolType.SHIFT_TRACE) {
-                canvasView.onionSkinRenderer.resetShiftOffset()
-                canvasView.invalidate()
-                refreshUiState()
-                Toast.makeText(activity, "Shift-and-Trace Light Table Reset to Center", Toast.LENGTH_SHORT).show()
+            if (canvasView.activeTool == StudioToolType.TEXT) {
+                selectTool(StudioToolType.BRUSH)
+                Toast.makeText(activity, "Detoggled Text -> ✏ Pen", Toast.LENGTH_SHORT).show()
             } else {
-                selectTool(StudioToolType.SHIFT_TRACE)
-                Toast.makeText(activity, "Drag with 1 finger to shift onion skin. Tap Shift again to reset alignment.", Toast.LENGTH_SHORT).show()
+                selectTool(StudioToolType.TEXT)
+                Toast.makeText(activity, "Tap anywhere on stage to place cartoon text", Toast.LENGTH_SHORT).show()
+            }
+        }.apply {
+            setOnLongClickListener {
+                canvasView.textController.showTextDialog(
+                    activity = activity,
+                    stageX = canvasView.project.stageWidth / 2f,
+                    stageY = canvasView.project.stageHeight / 2f,
+                    project = canvasView.project,
+                    primaryColor = canvasView.brushColor
+                ) {
+                    refreshUiState()
+                    canvasView.invalidate()
+                }
+                true
             }
         }
-        val btnPan = createStudioButton("✥ Pan") { selectTool(StudioToolType.HAND_PAN) }
+        val btnPicker = createStudioButton("💧 Pick") {
+            if (canvasView.activeTool == StudioToolType.EYEDROPPER) {
+                selectTool(StudioToolType.BRUSH)
+                Toast.makeText(activity, "Detoggled Eyedropper -> ✏ Pen", Toast.LENGTH_SHORT).show()
+            } else {
+                selectTool(StudioToolType.EYEDROPPER)
+            }
+        }
+        val btnCamTool = createStudioButton("🎥 Cam") {
+            if (canvasView.activeTool == StudioToolType.CAMERA_2D) {
+                selectTool(StudioToolType.BRUSH)
+                Toast.makeText(activity, "Detoggled Camera -> ✏ Pen", Toast.LENGTH_SHORT).show()
+            } else {
+                selectTool(StudioToolType.CAMERA_2D)
+            }
+        }
+        val btnShift = createStudioButton("💡 Shift") {
+            if (canvasView.activeTool == StudioToolType.SHIFT_TRACE) {
+                if (canvasView.onionSkinRenderer.isShifted()) {
+                    canvasView.onionSkinRenderer.resetShiftOffset()
+                    canvasView.invalidate()
+                    refreshUiState()
+                    Toast.makeText(activity, "Light Table Offset Reset to Center", Toast.LENGTH_SHORT).show()
+                } else {
+                    selectTool(StudioToolType.BRUSH)
+                    Toast.makeText(activity, "Detoggled Shift -> ✏ Pen", Toast.LENGTH_SHORT).show()
+                }
+            } else {
+                selectTool(StudioToolType.SHIFT_TRACE)
+                Toast.makeText(activity, "Drag with 1 finger to shift onion skin. Tap again to reset / exit.", Toast.LENGTH_SHORT).show()
+            }
+        }
+        val btnPan = createStudioButton("✥ Pan") {
+            if (canvasView.activeTool == StudioToolType.HAND_PAN) {
+                selectTool(StudioToolType.BRUSH)
+                Toast.makeText(activity, "Detoggled Pan -> ✏ Pen", Toast.LENGTH_SHORT).show()
+            } else {
+                selectTool(StudioToolType.HAND_PAN)
+            }
+        }
 
         toolButtons = mapOf(
             StudioToolType.BRUSH to btnPen,
@@ -525,11 +684,40 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
             canvasView.cycleExposureHold()
         }.apply {
             setOnLongClickListener {
-                canvasView.pausePlayback()
-                canvasView.project.currentFrame.exposureHold = 1
-                canvasView.triggerAutosave()
-                refreshUiState()
-                Toast.makeText(activity, "Exposure Hold reset to 1s", Toast.LENGTH_SHORT).show()
+                val curNum = canvasView.project.currentFrameIndex + 1
+                val options = arrayOf(
+                    "⏱ Reset Current Frame #$curNum to 1s",
+                    "⏱ Set Current Frame #$curNum to 2s",
+                    "⏱ Set ALL Frames to 2s (Animate on 2s — Classic Anime / Disney)",
+                    "⏱ Reset ALL Frames to 1s (Fluid 24 FPS)"
+                )
+                AlertDialog.Builder(activity)
+                    .setTitle("Frame Exposure Timing")
+                    .setItems(options) { _, which ->
+                        when (which) {
+                            0 -> {
+                                canvasView.project.currentFrame.exposureHold = 1
+                                canvasView.triggerAutosave()
+                                refreshUiState()
+                                Toast.makeText(activity, "Frame #$curNum reset to 1s", Toast.LENGTH_SHORT).show()
+                            }
+                            1 -> {
+                                canvasView.project.currentFrame.exposureHold = 2
+                                canvasView.triggerAutosave()
+                                refreshUiState()
+                                Toast.makeText(activity, "Frame #$curNum set to 2s", Toast.LENGTH_SHORT).show()
+                            }
+                            2 -> {
+                                canvasView.setAllFramesExposureHold(2)
+                                Toast.makeText(activity, "All frames set to 2s exposure hold (Animate on 2s)", Toast.LENGTH_SHORT).show()
+                            }
+                            3 -> {
+                                canvasView.setAllFramesExposureHold(1)
+                                Toast.makeText(activity, "All frames reset to 1s exposure hold", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    }
+                    .show()
                 true
             }
         }
@@ -556,10 +744,52 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
             } else {
                 showLoopAndXSheetDialog()
             }
+        }.apply {
+            setOnLongClickListener {
+                if (canvasView.project.isLoopRangeEnabled) {
+                    canvasView.project.clearLoopRange()
+                    refreshUiState()
+                    Toast.makeText(activity, "Loop range turned OFF (playing all frames)", Toast.LENGTH_SHORT).show()
+                } else {
+                    showLoopAndXSheetDialog()
+                }
+                true
+            }
+        }
+
+        timeFrameBadge = createStudioButton("⏱ 1/1 (0.0s)") {
+            showTimeFramesStudioDialog()
+        }.apply {
+            setOnLongClickListener {
+                showTimeFramesStudioDialog()
+                true
+            }
         }
 
         val btnAddFrame = createStudioButton("＋ Frame") {
             canvasView.addBlankFrame()
+        }.apply {
+            setOnLongClickListener {
+                val curNum = canvasView.project.currentFrameIndex + 1
+                val options = arrayOf(
+                    "＋ Insert Blank Frame AFTER #$curNum (Default)",
+                    "＋ Insert Blank Frame BEFORE #$curNum",
+                    "＋＋ Insert 5 Blank Frames (Extend Time)",
+                    "＋＋＋ Insert 10 Blank Frames (Extend Time)"
+                )
+                AlertDialog.Builder(activity)
+                    .setTitle("Insert Time Frames")
+                    .setItems(options) { _, which ->
+                        when (which) {
+                            0 -> canvasView.addBlankFrame()
+                            1 -> canvasView.addBlankFrameBeforeCurrent()
+                            2 -> canvasView.insertMultipleFrames(5)
+                            3 -> canvasView.insertMultipleFrames(10)
+                        }
+                    }
+                    .show()
+                true
+            }
         }
 
         val btnDupFrame = createStudioButton("⧉ Clone") {
@@ -619,7 +849,7 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
         }
 
         val controlMargin = dp(5f)
-        listOf(btnPrev, playPauseBtn, btnNext, btnFlipbookRoll, holdBtn, loopBtn).forEach { btn ->
+        listOf(btnPrev, playPauseBtn, btnNext, btnFlipbookRoll, holdBtn, loopBtn, timeFrameBadge).forEach { btn ->
             bottomContainer.addView(
                 btn,
                 LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(36f)).apply {
@@ -951,8 +1181,9 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
         styleButton(symBtn, isHighlighted = canvasView.isVerticalSymmetryEnabled, accentColor = Color.rgb(0, 195, 255))
 
         val hasCamKey = canvasView.camera2D.hasKeyframeAt(proj.currentFrameIndex)
-        camBtn.text = if (hasCamKey) "🎥 Cam [KEY]" else "🎥 2D Cam"
-        styleButton(camBtn, isHighlighted = hasCamKey, accentColor = Color.rgb(230, 155, 20))
+        val isCamLens = canvasView.camera2D.isCameraViewActive
+        camBtn.text = if (isCamLens) "🎥 Cam [LENS]" else if (hasCamKey) "🎥 Cam [KEY]" else "🎥 2D Cam"
+        styleButton(camBtn, isHighlighted = (hasCamKey || isCamLens), accentColor = Color.rgb(230, 155, 20))
 
         val phoneme = proj.currentFrame.phonemeMarker
         lipSyncBtn.text = if (phoneme != LipSyncPhoneme.NONE) "👄 ${phoneme.code}" else "👄 LipSync"
@@ -991,6 +1222,14 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
             loopBtn.text = "🔁 Loop"
             styleButton(loopBtn, isHighlighted = false, accentColor = Color.rgb(42, 46, 58))
         }
+
+        val curSec = String.format("%.2f", proj.getCurrentTimeSeconds())
+        val totSec = String.format("%.2f", proj.getTotalDurationSeconds())
+        val curIdx = proj.currentFrameIndex + 1
+        val totalCount = proj.frames.size
+        val loopTag = if (proj.isLoopRangeEnabled) " ⟦${proj.loopStartFrame + 1}-${proj.loopEndFrame + 1}⟧" else ""
+        timeFrameBadge.text = "⏱ $curIdx/$totalCount$loopTag (${curSec}s/${totSec}s)"
+        styleButton(timeFrameBadge, isHighlighted = proj.isLoopRangeEnabled, accentColor = Color.rgb(45, 120, 210))
 
         toolButtons.forEach { (tool, btn) ->
             if (tool == StudioToolType.SHAPE_GUIDE) {
@@ -1332,6 +1571,15 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
             LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, dp(34f)).apply { topMargin = dp(8f) }
         )
 
+        val btnExitShapes = createStudioButton("✏ Detoggle Shapes -> Return to Pen") {
+            selectTool(StudioToolType.BRUSH)
+            Toast.makeText(activity, "Returned to ✏ Pen", Toast.LENGTH_SHORT).show()
+        }
+        root.addView(
+            btnExitShapes,
+            LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, dp(34f)).apply { topMargin = dp(6f) }
+        )
+
         AlertDialog.Builder(activity)
             .setTitle("📐 2D Geometric Shapes & Perspective Rulers")
             .setView(root)
@@ -1532,8 +1780,7 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
             }
 
             val btnRef = createStudioButton(if (layer.isReferenceLayer) "⭐Ref" else "Set Ref") {
-                proj.setReferenceLayer(lIdx)
-                canvasView.triggerAutosave()
+                canvasView.toggleReferenceLayer(lIdx)
                 refreshUiState()
             }
 
@@ -1673,6 +1920,22 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
         root.addView(shadowLabel)
         root.addView(shadowSeek)
 
+        val btnDetoggleVfx = createStudioButton("🚫 Detoggle / Turn Off All VFX on Layer") {
+            layer.vfxLineBoilPx = 0f
+            layer.vfxGlowRadiusPx = 0f
+            layer.vfxDropShadowOffsetPx = 0f
+            canvasView.project.currentFrame.isCacheDirty = true
+            canvasView.invalidate()
+            boilSeek.progress = 0
+            glowSeek.progress = 0
+            shadowSeek.progress = 0
+            Toast.makeText(activity, "Turned off all VFX on '${layer.name}'", Toast.LENGTH_SHORT).show()
+        }
+        root.addView(
+            btnDetoggleVfx,
+            LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, dp(34f)).apply { topMargin = dp(12f) }
+        )
+
         AlertDialog.Builder(activity)
             .setTitle("✨ Non-Destructive 2D VFX — ${layer.name}")
             .setView(root)
@@ -1733,6 +1996,15 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
         root.addView(
             btnClearRig,
             LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, dp(34f)).apply { topMargin = dp(8f) }
+        )
+
+        val btnExitRig = createStudioButton("✏ Detoggle Rig -> Return to Pen") {
+            selectTool(StudioToolType.BRUSH)
+            Toast.makeText(activity, "Returned to ✏ Pen", Toast.LENGTH_SHORT).show()
+        }
+        root.addView(
+            btnExitRig,
+            LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, dp(34f)).apply { topMargin = dp(6f) }
         )
 
         AlertDialog.Builder(activity)
@@ -1859,6 +2131,15 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
         root.addView(
             btnClearKey,
             LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, dp(34f)).apply { topMargin = dp(10f) }
+        )
+
+        val btnExitTween = createStudioButton("✏ Detoggle Tween -> Return to Pen") {
+            selectTool(StudioToolType.BRUSH)
+            Toast.makeText(activity, "Returned to ✏ Pen", Toast.LENGTH_SHORT).show()
+        }
+        root.addView(
+            btnExitTween,
+            LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, dp(34f)).apply { topMargin = dp(6f) }
         )
 
         AlertDialog.Builder(activity)
@@ -2014,6 +2295,92 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
             .show()
     }
 
+    private fun showTimeFramesStudioDialog() {
+        val proj = canvasView.project
+        val curNum = proj.currentFrameIndex + 1
+        val totalCount = proj.frames.size
+        val curSec = String.format("%.2f", proj.getCurrentTimeSeconds())
+        val totSec = String.format("%.2f", proj.getTotalDurationSeconds())
+        val loopStatus = if (proj.isLoopRangeEnabled) "Active [${proj.loopStartFrame + 1}-${proj.loopEndFrame + 1}]" else "Off (All Frames)"
+
+        val options = arrayOf(
+            "⏱ Animate on 1s (Fluid 24 FPS — Set All Frames to 1s)",
+            "⏱ Animate on 2s (Classic 12 FPS Anime / Disney — Set All Frames to 2s)",
+            "⏱ Animate on 3s (Snappy 8 FPS Cartoon — Set All Frames to 3s)",
+            "＋ Insert Blank Frame BEFORE Frame #$curNum",
+            "＋ Insert Blank Frame AFTER Frame #$curNum",
+            "＋＋ Insert 5 Blank Frames (Extend Time)",
+            "＋＋＋ Insert 10 Blank Frames (Extend Time)",
+            "◀ Slide Frame #$curNum Left (Earlier)",
+            "Slide Frame #$curNum Right ▶ (Later)",
+            "🔄 Reverse Entire Animation Order",
+            "⟦ Set Loop Start at Frame #$curNum",
+            "Set Loop End at Frame #$curNum ⟧",
+            "🚫 Detoggle / Turn Off Loop Range",
+            "🧹 Clear Active Cel Drawings (Keep Timing Intact)",
+            "💥 Clear All Drawings Across Frame #$curNum (Keep Timing Intact)",
+            "🗑 Delete Entire Frame #$curNum (Shorten Duration)"
+        )
+
+        AlertDialog.Builder(activity)
+            .setTitle("⏱ Time Frames & Timing Studio\nFrame $curNum of $totalCount • ${curSec}s / ${totSec}s @ ${proj.fps} FPS\nLoop: $loopStatus")
+            .setItems(options) { _, which ->
+                when (which) {
+                    0 -> {
+                        canvasView.setAllFramesExposureHold(1)
+                        Toast.makeText(activity, "All frames set to 1s (Fluid 24 FPS)", Toast.LENGTH_SHORT).show()
+                    }
+                    1 -> {
+                        canvasView.setAllFramesExposureHold(2)
+                        Toast.makeText(activity, "All frames set to 2s (Classic 12 FPS)", Toast.LENGTH_SHORT).show()
+                    }
+                    2 -> {
+                        canvasView.setAllFramesExposureHold(3)
+                        Toast.makeText(activity, "All frames set to 3s (Snappy 8 FPS)", Toast.LENGTH_SHORT).show()
+                    }
+                    3 -> canvasView.addBlankFrameBeforeCurrent()
+                    4 -> canvasView.addBlankFrame()
+                    5 -> canvasView.insertMultipleFrames(5)
+                    6 -> canvasView.insertMultipleFrames(10)
+                    7 -> canvasView.moveCurrentFrameLeft()
+                    8 -> canvasView.moveCurrentFrameRight()
+                    9 -> canvasView.reverseAllFrames()
+                    10 -> {
+                        proj.setLoopInAtCurrent()
+                        refreshUiState()
+                        Toast.makeText(activity, "Loop start set to Frame #$curNum", Toast.LENGTH_SHORT).show()
+                    }
+                    11 -> {
+                        proj.setLoopOutAtCurrent()
+                        refreshUiState()
+                        Toast.makeText(activity, "Loop end set to Frame #$curNum", Toast.LENGTH_SHORT).show()
+                    }
+                    12 -> {
+                        proj.clearLoopRange()
+                        refreshUiState()
+                        Toast.makeText(activity, "Loop range turned OFF", Toast.LENGTH_SHORT).show()
+                    }
+                    13 -> {
+                        canvasView.clearActiveCel()
+                        Toast.makeText(activity, "Cleared active cel drawings on Frame #$curNum", Toast.LENGTH_SHORT).show()
+                    }
+                    14 -> {
+                        canvasView.clearAllCelsOnCurrentFrame()
+                        Toast.makeText(activity, "Cleared all drawings across Frame #$curNum", Toast.LENGTH_SHORT).show()
+                    }
+                    15 -> {
+                        if (proj.frames.size <= 1) {
+                            canvasView.clearAllCelsOnCurrentFrame()
+                            Toast.makeText(activity, "Cleared Frame #1 (1 frame required)", Toast.LENGTH_SHORT).show()
+                        } else {
+                            canvasView.deleteCurrentFrame()
+                        }
+                    }
+                }
+            }
+            .show()
+    }
+
     private fun showFrameTagDialog(frameIndex: Int) {
         val fIdx = frameIndex.coerceIn(0, canvasView.project.frames.lastIndex)
         val frame = canvasView.project.frames[fIdx]
@@ -2117,7 +2484,15 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
             controller.endColor = Color.argb(0, Color.red(c), Color.green(c), Color.blue(c))
             Toast.makeText(activity, "End color set to soft fade", Toast.LENGTH_SHORT).show()
         }
-        root.addView(btnTrans, LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, dp(36f)))
+        root.addView(btnTrans, LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, dp(36f)).apply { bottomMargin = dp(6f) })
+
+        val btnExitGrad = createStudioButton("✏ Detoggle Gradient -> Return to Pen") {
+            selectTool(StudioToolType.BRUSH)
+            canvasView.gradientController.cancelDrag()
+            canvasView.invalidate()
+            Toast.makeText(activity, "Returned to ✏ Pen", Toast.LENGTH_SHORT).show()
+        }
+        root.addView(btnExitGrad, LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, dp(36f)))
 
         AlertDialog.Builder(activity)
             .setTitle("🌈 2D Gradient Tool Settings")

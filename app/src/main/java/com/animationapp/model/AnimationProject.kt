@@ -101,6 +101,19 @@ class AnimationProject(
         }
     }
 
+    /**
+     * Toggles reference status on layer: if already reference, detoggles it back to normal.
+     */
+    fun toggleReferenceLayer(index: Int) {
+        val wasRef = layers.getOrNull(index)?.isReferenceLayer == true
+        for (i in layers.indices) {
+            layers[i].isReferenceLayer = false
+        }
+        if (!wasRef && index in layers.indices) {
+            layers[index].isReferenceLayer = true
+        }
+    }
+
     fun getReferenceLayerIndex(): Int {
         val refIdx = layers.indexOfFirst { it.isReferenceLayer }
         return if (refIdx >= 0) refIdx else activeLayerIndex
@@ -116,6 +129,20 @@ class AnimationProject(
         frames.add(insertIdx, AnimationFrame(layerCount = layers.size))
         currentFrameIndex = insertIdx
         return currentFrameIndex
+    }
+
+    fun addBlankFrameBeforeCurrent(): Int {
+        val insertIdx = currentFrameIndex.coerceIn(0, frames.size)
+        frames.add(insertIdx, AnimationFrame(layerCount = layers.size))
+        currentFrameIndex = insertIdx
+        return currentFrameIndex
+    }
+
+    fun insertMultipleBlankFramesAfterCurrent(count: Int) {
+        val insertIdx = (currentFrameIndex + 1).coerceAtMost(frames.size)
+        for (i in 0 until count.coerceAtLeast(1)) {
+            frames.add(insertIdx + i, AnimationFrame(layerCount = layers.size))
+        }
     }
 
     fun duplicateCurrentFrame(): Int {
@@ -216,6 +243,40 @@ class AnimationProject(
         }
         currentFrame.exposureHold = nextHold
         return nextHold
+    }
+
+    /**
+     * Batch sets exposure hold for all frames (e.g. 2s for classic anime on 2s).
+     */
+    fun setAllFramesExposureHold(hold: Int) {
+        val h = hold.coerceIn(1, 4)
+        for (f in frames) {
+            f.exposureHold = h
+            f.isCacheDirty = true
+        }
+    }
+
+    /**
+     * Total animation timeline duration in seconds, taking all exposure holds into account.
+     */
+    fun getTotalDurationSeconds(): Float {
+        var totalTicks = 0
+        for (f in frames) {
+            totalTicks += f.exposureHold.coerceAtLeast(1)
+        }
+        return totalTicks / fps.toFloat().coerceAtLeast(1f)
+    }
+
+    /**
+     * Elapsed time in seconds up to the current frame.
+     */
+    fun getCurrentTimeSeconds(): Float {
+        var elapsedTicks = 0
+        val targetIdx = currentFrameIndex.coerceIn(0, frames.lastIndex)
+        for (i in 0 until targetIdx) {
+            elapsedTicks += frames[i].exposureHold.coerceAtLeast(1)
+        }
+        return elapsedTicks / fps.toFloat().coerceAtLeast(1f)
     }
 
     fun setLoopInAtCurrent() {
