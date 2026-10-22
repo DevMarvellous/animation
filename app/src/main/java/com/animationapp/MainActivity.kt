@@ -1,9 +1,11 @@
 package com.animationapp
 
+import android.Manifest
 import android.app.Activity
 import android.app.AlertDialog
 import android.content.ComponentCallbacks2
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.view.View
@@ -23,6 +25,40 @@ import com.animationapp.ui.workspace.StudioWorkspaceLayout
 class MainActivity : Activity() {
 
     private var workspaceLayout: StudioWorkspaceLayout? = null
+    private var pendingMicPermissionCallback: (() -> Unit)? = null
+
+    companion object {
+        const val REQUEST_CODE_RECORD_AUDIO = 7002
+    }
+
+    fun checkAndRequestRecordAudioPermission(onGranted: () -> Unit) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+            onGranted()
+            return
+        }
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+            onGranted()
+        } else {
+            pendingMicPermissionCallback = onGranted
+            requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), REQUEST_CODE_RECORD_AUDIO)
+        }
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == REQUEST_CODE_RECORD_AUDIO) {
+            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                pendingMicPermissionCallback?.invoke()
+            } else {
+                AlertDialog.Builder(this)
+                    .setTitle("Microphone Permission Required")
+                    .setMessage("ProAnimation Studio needs microphone access to record voice dialogue and synchronize mouth lip-sync to the animation.")
+                    .setPositiveButton("OK", null)
+                    .show()
+            }
+            pendingMicPermissionCallback = null
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)

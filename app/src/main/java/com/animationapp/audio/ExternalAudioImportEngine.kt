@@ -70,46 +70,7 @@ object ExternalAudioImportEngine {
                 } ?: throw IllegalStateException("Cannot open selected audio file")
 
                 cachedAudioFile = destFile
-
-                // 2. Extract Duration
-                val retriever = MediaMetadataRetriever()
-                retriever.setDataSource(destFile.absolutePath)
-                val durationStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
-                val durationMs = durationStr?.toLongOrNull() ?: 0L
-                audioDurationMs = durationMs
-                retriever.release()
-
-                mainHandler.post { onProgress("Decoding acoustic waveform...") }
-
-                // 3. Decode Audio into per-frame peak amplitudes via MediaExtractor & MediaCodec
-                val amplitudes = decodeAudioEnvelope(destFile, project.fps, project.frames.size)
-
-                // 4. Update Project Frames
-                val frames = project.frames
-                val count = minOf(frames.size, amplitudes.size)
-                for (i in 0 until count) {
-                    val amp = amplitudes[i].coerceIn(0f, 1f)
-                    frames[i].audioAmplitude = amp
-
-                    // Auto-assign Preston Blair phoneme mouth markers based on acoustic volume
-                    frames[i].phonemeMarker = when {
-                        amp < 0.08f -> LipSyncPhoneme.NONE
-                        amp < 0.22f -> LipSyncPhoneme.M_B_P
-                        amp < 0.45f -> if (i % 2 == 0) LipSyncPhoneme.F_V else LipSyncPhoneme.L_TH
-                        amp < 0.65f -> if (i % 2 == 0) LipSyncPhoneme.E else LipSyncPhoneme.U
-                        amp < 0.85f -> LipSyncPhoneme.O
-                        else -> LipSyncPhoneme.A_I
-                    }
-                }
-
-                // Initialize MediaPlayer
-                prepareMediaPlayer(destFile)
-
-                val durSeconds = (durationMs / 1000f)
-                CrashReporter.logInfo("AudioEngine", "Decoded ${amplitudes.size} frame envelope (${durSeconds}s)")
-                mainHandler.post {
-                    onComplete(true, "Loaded audio track: ${durSeconds}s synced to ${project.fps} FPS")
-                }
+                processAndDecodeAudioFile(destFile, project, onProgress, onComplete)
 
             } catch (t: Throwable) {
                 CrashReporter.logInfo("AudioEngine", "Audio import failed: ${t.message}")
@@ -117,6 +78,86 @@ object ExternalAudioImportEngine {
                     onComplete(false, t.message ?: "Failed to decode audio track")
                 }
             }
+        }
+    }
+
+    /**
+     * Imports a direct audio [File] (e.g. from [VoiceRecorderEngine] microphone recording),
+     * decodes its PCM samples, downsamples to per-frame amplitudes, and updates [project] frames.
+     */
+    fun importAudioFileDirectAsync(
+        context: Context,
+        audioSourceFile: File,
+        project: AnimationProject,
+        onProgress: (String) -> Unit,
+        onComplete: (Boolean, String) -> Unit
+    ) {
+        val appContext = context.applicationContext
+        executor.execute {
+            try {
+                mainHandler.post { onProgress("Processing recorded audio track...") }
+
+                val destFile = File(appContext.filesDir, "project_audio_track.m4a")
+                if (audioSourceFile.absolutePath != destFile.absolutePath) {
+                    audioSourceFile.copyTo(destFile, overwrite = true)
+                }
+
+                cachedAudioFile = destFile
+                processAndDecodeAudioFile(destFile, project, onProgress, onComplete)
+
+            } catch (t: Throwable) {
+                CrashReporter.logInfo("AudioEngine", "Direct audio import failed: ${t.message}")
+                mainHandler.post {
+                    onComplete(false, t.message ?: "Failed to process audio file")
+                }
+            }
+        }
+    }
+
+    private fun processAndDecodeAudioFile(
+        destFile: File,
+        project: AnimationProject,
+        onProgress: (String) -> Unit,
+        onComplete: (Boolean, String) -> Unit
+    ) {
+        // 2. Extract Duration
+        val retriever = MediaMetadataRetriever()
+        retriever.setDataSource(destFile.absolutePath)
+        val durationStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+        val durationMs = durationStr?.toLongOrNull() ?: 0L
+        audioDurationMs = durationMs
+        retriever.release()
+
+        mainHandler.post { onProgress("Decoding acoustic waveform...") }
+
+        // 3. Decode Audio into per-frame peak amplitudes via MediaExtractor & MediaCodec
+        val amplitudes = decodeAudioEnvelope(destFile, project.fps, project.frames.size)
+
+        // 4. Update Project Frames
+        val frames = project.frames
+        val count = minOf(frames.size, amplitudes.size)
+        for (i in 0 until count) {
+            val amp = amplitudes[i].coerceIn(0f, 1f)
+            frames[i].audioAmplitude = amp
+
+            // Auto-assign Preston Blair phoneme mouth markers based on acoustic volume
+            frames[i].phonemeMarker = when {
+                amp < 0.08f -> LipSyncPhoneme.NONE
+                amp < 0.22f -> LipSyncPhoneme.M_B_P
+                amp < 0.45f -> if (i % 2 == 0) LipSyncPhoneme.F_V else LipSyncPhoneme.L_TH
+                amp < 0.65f -> if (i % 2 == 0) LipSyncPhoneme.E else LipSyncPhoneme.U
+                amp < 0.85f -> LipSyncPhoneme.O
+                else -> LipSyncPhoneme.A_I
+            }
+        }
+
+        // Initialize MediaPlayer
+        prepareMediaPlayer(destFile)
+
+        val durSeconds = (durationMs / 1000f)
+        CrashReporter.logInfo("AudioEngine", "Decoded ${amplitudes.size} frame envelope (${durSeconds}s)")
+        mainHandler.post {
+            onComplete(true, "Loaded audio track: ${durSeconds}s synced to ${project.fps} FPS")
         }
     }
 

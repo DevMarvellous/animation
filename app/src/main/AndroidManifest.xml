@@ -4,6 +4,8 @@
     <!-- Scoped storage is used on Android 10+ (API 29+); legacy permissions for Android 8/9 (API 26-28) -->
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
+    <!-- Direct In-App Microphone Voice Recording for Dialogue & Lip-Sync -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
     <!-- Request high-refresh rate displays (90Hz / 120Hz) where supported -->
     <application

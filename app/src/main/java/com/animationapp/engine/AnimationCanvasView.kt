@@ -89,6 +89,18 @@ class AnimationCanvasView(
     private var lastPlaybackStepTimeMs = 0L
     private var currentHoldTick = 0
 
+    // Flipbook 3-Drawing Inbetween Rocker (Phase 30)
+    var isRocking: Boolean = false
+        private set
+    var rockerBaseFrame: Int = 0
+        private set
+    var rockerFrames: IntArray = intArrayOf()
+        private set
+    private var rockerPos: Int = 0
+    private var rockerDirection: Int = 1
+    var rockerIntervalMs: Long = 125L // ~8 FPS default rocker cadence
+    private var lastRockerStepMs: Long = 0L
+
     // Tool drag tracking
     private var lastToolDragX = 0f
     private var lastToolDragY = 0f
@@ -388,6 +400,28 @@ class AnimationCanvasView(
                     }
                 }
             }
+        } else if (isRocking && rockerFrames.size >= 2) {
+            val now = SystemClock.uptimeMillis()
+            if (now - lastRockerStepMs >= rockerIntervalMs) {
+                lastRockerStepMs = now
+                rockerPos += rockerDirection
+                if (rockerPos >= rockerFrames.size - 1) {
+                    rockerPos = rockerFrames.size - 1
+                    rockerDirection = -1
+                } else if (rockerPos <= 0) {
+                    rockerPos = 0
+                    rockerDirection = 1
+                }
+                val targetFrame = rockerFrames[rockerPos]
+                if (targetFrame != project.currentFrameIndex) {
+                    project.selectFrame(targetFrame)
+                    DiskSwapManager.maintainHotFrameWindow(context, project)
+                    project.currentFrame.isCacheDirty = true
+                    LipSyncAudioEngine.playFrameScrubSlice(project.currentFrame.phonemeMarker)
+                    onStateChanged?.invoke()
+                }
+            }
+            postInvalidateOnAnimation()
         }
 
         // 2. Draw dark studio workspace background
@@ -572,6 +606,9 @@ class AnimationCanvasView(
 
         if (isPlaying) {
             pausePlayback()
+        }
+        if (isRocking) {
+            stopInbetweenRocker()
         }
 
         val stageX = viewport.screenToStageX(event.x, event.y)
@@ -1123,6 +1160,9 @@ class AnimationCanvasView(
 
     fun togglePlayback() {
         lassoController.clearSelection()
+        if (isRocking) {
+            isRocking = false
+        }
         isPlaying = !isPlaying
         currentHoldTick = 0
         if (isPlaying) {
@@ -1138,6 +1178,88 @@ class AnimationCanvasView(
         onStateChanged?.invoke()
     }
 
+    /**
+     * Starts continuous 3-drawing inbetween rocking around the current frame.
+     * Oscillates ping-pong between [N-1, N, N+1].
+     */
+    fun startInbetweenRocker(speedFps: Int = 8, useFiveFrames: Boolean = false) {
+        if (project.frames.size < 2) return
+        pausePlayback()
+        lassoController.clearSelection()
+
+        val cur = project.currentFrameIndex
+        rockerBaseFrame = cur
+        rockerIntervalMs = (1000L / speedFps.coerceIn(4, 30))
+
+        rockerFrames = if (useFiveFrames) {
+            val f0 = (cur - 2).coerceAtLeast(0)
+            val f1 = (cur - 1).coerceAtLeast(0)
+            val f2 = cur
+            val f3 = (cur + 1).coerceAtMost(project.frames.lastIndex)
+            val f4 = (cur + 2).coerceAtMost(project.frames.lastIndex)
+            intArrayOf(f0, f1, f2, f3, f4).distinct().toIntArray()
+        } else {
+            val prev = (cur - 1).coerceAtLeast(0)
+            val next = (cur + 1).coerceAtMost(project.frames.lastIndex)
+            intArrayOf(prev, cur, next).distinct().toIntArray()
+        }
+
+        rockerPos = rockerFrames.indexOf(cur).coerceAtLeast(0)
+        rockerDirection = 1
+        isRocking = true
+        lastRockerStepMs = SystemClock.uptimeMillis()
+        postInvalidateOnAnimation()
+        onStateChanged?.invoke()
+    }
+
+    /**
+     * Halts inbetween rocking and returns playhead to the original working cel.
+     */
+    fun stopInbetweenRocker() {
+        if (isRocking) {
+            isRocking = false
+            selectFrame(rockerBaseFrame)
+            onStateChanged?.invoke()
+            invalidate()
+        }
+    }
+
+    /**
+     * Toggles 3-drawing inbetween rocking on/off.
+     */
+    fun toggleInbetweenRocker(speedFps: Int = 8) {
+        if (isRocking) {
+            stopInbetweenRocker()
+        } else {
+            startInbetweenRocker(speedFps)
+        }
+    }
+
+    /**
+     * Tactile Rocker: Jump directly to the previous neighbor frame in the rocker set.
+     */
+    fun jumpToRockerPrev() {
+        val cur = project.currentFrameIndex
+        val prev = (cur - 1).coerceAtLeast(0)
+        selectFrame(prev)
+    }
+
+    /**
+     * Tactile Rocker: Jump directly to the center inbetween drawing.
+     */
+    fun jumpToRockerCur() {
+        selectFrame(rockerBaseFrame.coerceIn(0, project.frames.lastIndex))
+    }
+
+    /**
+     * Tactile Rocker: Jump directly to the next neighbor frame in the rocker set.
+     */
+    fun jumpToRockerNext() {
+        val cur = project.currentFrameIndex
+        val next = (cur + 1).coerceAtMost(project.frames.lastIndex)
+        selectFrame(next)
+    }
+
     fun pausePlayback() {
         if (isPlaying) {
             isPlaying = false
@@ -1151,6 +1273,9 @@ class AnimationCanvasView(
 
     fun selectFrame(index: Int) {
         pausePlayback()
+        if (isRocking && index !in rockerFrames) {
+            isRocking = false
+        }
         lassoController.clearSelection()
         project.selectFrame(index)
         DiskSwapManager.maintainHotFrameWindow(context, project)

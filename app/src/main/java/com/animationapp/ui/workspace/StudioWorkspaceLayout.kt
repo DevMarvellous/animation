@@ -6,6 +6,8 @@ import android.content.Intent
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
+import android.os.Handler
+import android.os.Looper
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.MotionEvent
@@ -19,10 +21,12 @@ import android.widget.ScrollView
 import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
+import com.animationapp.MainActivity
 import com.animationapp.audio.ExternalAudioImportEngine
 import com.animationapp.audio.LipSyncAudioEngine
 import com.animationapp.audio.LipSyncPhoneme
 import com.animationapp.audio.VoiceoverWaveformEngine
+import com.animationapp.audio.VoiceRecorderEngine
 import com.animationapp.core.config.StudioPreferences
 import com.animationapp.core.diagnostics.CrashReporter
 import com.animationapp.core.storage.CanvasStagePreset
@@ -81,6 +85,7 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
     private lateinit var exportBtn: TextView
     private lateinit var holdBtn: TextView
     private lateinit var loopBtn: TextView
+    private lateinit var rockerBtn: TextView
     private lateinit var timeFrameBadge: TextView
     private lateinit var sizeLabel: TextView
     private lateinit var activeColorDot: View
@@ -697,6 +702,21 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
             }
         }
 
+        // 3-Drawing Inbetween Rocker (`🔁 Rock` — Phase 30): Rapidly oscillates between N-1 ⇄ N ⇄ N+1
+        rockerBtn = createStudioButton(if (canvasView.isRocking) "🔁 Rock:ON" else "🔁 Rock") {
+            if (canvasView.project.frames.size < 2) {
+                Toast.makeText(activity, "Need at least 2 frames to rock inbetweens", Toast.LENGTH_SHORT).show()
+            } else {
+                canvasView.toggleInbetweenRocker()
+                refreshUiState()
+            }
+        }.apply {
+            setOnLongClickListener {
+                showInbetweenRockerStudioDialog()
+                true
+            }
+        }
+
         holdBtn = createStudioButton("⏱ 1s") {
             canvasView.cycleExposureHold()
         }.apply {
@@ -866,7 +886,7 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
         }
 
         val controlMargin = dp(5f)
-        listOf(btnPrev, playPauseBtn, btnNext, btnFlipbookRoll, holdBtn, loopBtn, timeFrameBadge).forEach { btn ->
+        listOf(btnPrev, playPauseBtn, btnNext, btnFlipbookRoll, rockerBtn, holdBtn, loopBtn, timeFrameBadge).forEach { btn ->
             bottomContainer.addView(
                 btn,
                 LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(36f)).apply {
@@ -1240,6 +1260,9 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
             loopBtn.text = "🔁 Loop"
             styleButton(loopBtn, isHighlighted = false, accentColor = Color.rgb(42, 46, 58))
         }
+
+        rockerBtn.text = if (canvasView.isRocking) "🔁 Rock:ON" else "🔁 Rock"
+        styleButton(rockerBtn, isHighlighted = canvasView.isRocking, accentColor = Color.rgb(255, 120, 60))
 
         val curSec = String.format("%.2f", proj.getCurrentTimeSeconds())
         val totSec = String.format("%.2f", proj.getTotalDurationSeconds())
@@ -2582,6 +2605,7 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
 
         val options = if (hasAudio) {
             arrayOf(
+                "🎙 Record Voice / Dialogue (Microphone)",
                 "📂 Import / Replace Audio File (.mp3, .wav, .m4a)",
                 "▶ Play Synchronized Audio Preview",
                 "👄 Auto-Lip-Sync to Voice Waveform",
@@ -2589,6 +2613,7 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
             )
         } else {
             arrayOf(
+                "🎙 Record Voice / Dialogue (Microphone)",
                 "📂 Import External Audio File (.mp3, .wav, .m4a)",
                 "👄 Generate Procedural Voiceover Waveform"
             )
@@ -2599,18 +2624,23 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
             .setItems(options) { _, which ->
                 if (hasAudio) {
                     when (which) {
-                        0 -> launchAudioPicker()
-                        1 -> {
+                        0 -> {
+                            (activity as? MainActivity)?.checkAndRequestRecordAudioPermission {
+                                showMicrophoneRecorderDialog()
+                            }
+                        }
+                        1 -> launchAudioPicker()
+                        2 -> {
                             ExternalAudioImportEngine.startPlayback(canvasView.project.currentFrameIndex, canvasView.project.fps)
                             Toast.makeText(activity, "Playing audio...", Toast.LENGTH_SHORT).show()
                         }
-                        2 -> {
+                        3 -> {
                             VoiceoverWaveformEngine.autoGenerateDialogueWaveformAndMouths(canvasView.project)
                             refreshUiState()
                             canvasView.invalidate()
                             Toast.makeText(activity, "Mapped voice amplitudes to 2D mouth markers", Toast.LENGTH_SHORT).show()
                         }
-                        3 -> {
+                        4 -> {
                             ExternalAudioImportEngine.removeAudio(canvasView.project)
                             refreshUiState()
                             canvasView.invalidate()
@@ -2619,8 +2649,13 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
                     }
                 } else {
                     when (which) {
-                        0 -> launchAudioPicker()
-                        1 -> {
+                        0 -> {
+                            (activity as? MainActivity)?.checkAndRequestRecordAudioPermission {
+                                showMicrophoneRecorderDialog()
+                            }
+                        }
+                        1 -> launchAudioPicker()
+                        2 -> {
                             VoiceoverWaveformEngine.autoGenerateDialogueWaveformAndMouths(canvasView.project)
                             refreshUiState()
                             canvasView.invalidate()
@@ -2630,6 +2665,245 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
                 }
             }
             .setPositiveButton("Close", null)
+            .show()
+    }
+
+    private fun showMicrophoneRecorderDialog() {
+        if (VoiceRecorderEngine.isRecording) {
+            VoiceRecorderEngine.cancelRecording()
+        }
+
+        val root = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20f), dp(14f), dp(20f), dp(10f))
+        }
+
+        val titleTv = TextView(context).apply {
+            text = "🎙 In-App Voice Microphone Recording\nRecord character speech or sound effects directly to the timeline."
+            setTextColor(Color.rgb(210, 225, 250))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            setPadding(0, 0, 0, dp(10f))
+        }
+        root.addView(titleTv)
+
+        val timerTv = TextView(context).apply {
+            text = "⏱ 00:00.0s (0 frames @ ${canvasView.project.fps} FPS)"
+            setTextColor(Color.WHITE)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+            gravity = Gravity.CENTER
+            setPadding(0, dp(6f), 0, dp(6f))
+        }
+        root.addView(timerTv)
+
+        val vuTv = TextView(context).apply {
+            text = "Volume: [▱▱▱▱▱▱▱▱▱▱]"
+            setTextColor(Color.rgb(0, 210, 255))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+            gravity = Gravity.CENTER
+            setPadding(0, 0, 0, dp(12f))
+        }
+        root.addView(vuTv)
+
+        val cbSyncPlayback = CheckBox(context).apply {
+            text = "Play stage animation while recording (match visual lip movement)"
+            setTextColor(Color.WHITE)
+            isChecked = true
+        }
+        root.addView(cbSyncPlayback)
+
+        lateinit var btnRecordAction: TextView
+        val pollHandler = Handler(Looper.getMainLooper())
+        val pollRunnable = object : Runnable {
+            override fun run() {
+                if (VoiceRecorderEngine.isRecording) {
+                    val elapsedMs = VoiceRecorderEngine.getElapsedRecordingMs()
+                    val sec = elapsedMs / 1000f
+                    val frames = (sec * canvasView.project.fps).toInt()
+                    val min = (sec / 60).toInt()
+                    val remSec = sec % 60f
+                    timerTv.text = String.format("⏱ %02d:%04.1fs (%d frames @ %d FPS)", min, remSec, frames, canvasView.project.fps)
+
+                    val amp = VoiceRecorderEngine.getNormalizedPeakAmplitude()
+                    val barCount = (amp * 10f).toInt().coerceIn(0, 10)
+                    val bars = "▰".repeat(barCount) + "▱".repeat(10 - barCount)
+                    vuTv.text = "Volume: [$bars]"
+
+                    pollHandler.postDelayed(this, 100L)
+                }
+            }
+        }
+
+        var dialogRef: AlertDialog? = null
+
+        btnRecordAction = createStudioButton("🔴 Start Recording") {
+            if (!VoiceRecorderEngine.isRecording) {
+                // Start recording
+                val started = VoiceRecorderEngine.startRecording(activity)
+                if (started) {
+                    btnRecordAction.text = "⏹ Stop & Apply to Timeline"
+                    styleButton(btnRecordAction, isHighlighted = true, accentColor = Color.rgb(235, 60, 60))
+                    if (cbSyncPlayback.isChecked) {
+                        if (!canvasView.isPlaying) {
+                            canvasView.togglePlayback()
+                        }
+                    }
+                    pollHandler.post(pollRunnable)
+                    Toast.makeText(activity, "Recording started... Speak into microphone", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(activity, "Could not start audio recorder", Toast.LENGTH_SHORT).show()
+                }
+            } else {
+                // Stop recording
+                pollHandler.removeCallbacks(pollRunnable)
+                if (canvasView.isPlaying) {
+                    canvasView.pausePlayback()
+                }
+                val audioFile = VoiceRecorderEngine.stopRecording()
+                dialogRef?.dismiss()
+
+                if (audioFile != null && audioFile.exists()) {
+                    Toast.makeText(activity, "Processing recorded voice track...", Toast.LENGTH_SHORT).show()
+                    ExternalAudioImportEngine.importAudioFileDirectAsync(
+                        context = activity,
+                        audioSourceFile = audioFile,
+                        project = canvasView.project,
+                        onProgress = { msg -> post { Toast.makeText(activity, msg, Toast.LENGTH_SHORT).show() } }
+                    ) { success, msg ->
+                        post {
+                            refreshUiState()
+                            canvasView.triggerAutosave()
+                            canvasView.invalidate()
+                            Toast.makeText(activity, "🎙 $msg", Toast.LENGTH_LONG).show()
+                        }
+                    }
+                } else {
+                    Toast.makeText(activity, "Recording was empty or failed", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+        styleButton(btnRecordAction, isHighlighted = true, accentColor = Color.rgb(210, 45, 45))
+        root.addView(btnRecordAction, LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, dp(44f)).apply { topMargin = dp(14f) })
+
+        val dialog = AlertDialog.Builder(activity)
+            .setTitle("🎙 In-App Voice Microphone Recording")
+            .setView(root)
+            .setNegativeButton("Cancel") { _, _ ->
+                pollHandler.removeCallbacks(pollRunnable)
+                if (canvasView.isPlaying) canvasView.pausePlayback()
+                VoiceRecorderEngine.cancelRecording()
+            }
+            .setOnDismissListener {
+                pollHandler.removeCallbacks(pollRunnable)
+                if (VoiceRecorderEngine.isRecording) {
+                    if (canvasView.isPlaying) canvasView.pausePlayback()
+                    VoiceRecorderEngine.cancelRecording()
+                }
+            }
+            .create()
+
+        dialogRef = dialog
+        dialog.show()
+    }
+
+    private fun showInbetweenRockerStudioDialog() {
+        val proj = canvasView.project
+        val curNum = proj.currentFrameIndex + 1
+        val isRocking = canvasView.isRocking
+        val prevNum = (curNum - 1).coerceAtLeast(1)
+        val nextNum = (curNum + 1).coerceAtMost(proj.frames.size)
+
+        val root = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(18f), dp(12f), dp(18f), dp(10f))
+        }
+
+        val infoTv = TextView(context).apply {
+            text = "🔁 Traditional 3-Drawing Peg Flipping / Inbetween Rocker\nInspect motion arcs and spacing between neighboring drawings."
+            setTextColor(Color.rgb(200, 215, 245))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+            setPadding(0, 0, 0, dp(10f))
+        }
+        root.addView(infoTv)
+
+        // Tactile 3-Pill Rocker Dock Strip:
+        val tactileLabel = TextView(context).apply {
+            text = "Tactile Inbetween Flip (Tap or slide across):"
+            setTextColor(Color.WHITE)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+            setPadding(0, 0, 0, dp(6f))
+        }
+        root.addView(tactileLabel)
+
+        val tactileRow = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, 0, 0, dp(12f))
+        }
+
+        val btnJumpPrev = createStudioButton("◀ Frame #$prevNum") {
+            canvasView.jumpToRockerPrev()
+            refreshUiState()
+        }
+        val btnJumpCur = createStudioButton("● Frame #$curNum (Working)") {
+            canvasView.jumpToRockerCur()
+            refreshUiState()
+        }
+        val btnJumpNext = createStudioButton("Frame #$nextNum ▶") {
+            canvasView.jumpToRockerNext()
+            refreshUiState()
+        }
+        styleButton(btnJumpPrev, isHighlighted = (proj.currentFrameIndex == prevNum - 1), accentColor = Color.rgb(45, 152, 218))
+        styleButton(btnJumpCur, isHighlighted = (proj.currentFrameIndex == curNum - 1), accentColor = Color.rgb(250, 130, 49))
+        styleButton(btnJumpNext, isHighlighted = (proj.currentFrameIndex == nextNum - 1), accentColor = Color.rgb(45, 152, 218))
+
+        tactileRow.addView(btnJumpPrev, LinearLayout.LayoutParams(0, dp(38f), 1f).apply { marginEnd = dp(4f) })
+        tactileRow.addView(btnJumpCur, LinearLayout.LayoutParams(0, dp(38f), 1.2f).apply { marginEnd = dp(4f) })
+        tactileRow.addView(btnJumpNext, LinearLayout.LayoutParams(0, dp(38f), 1f))
+        root.addView(tactileRow)
+
+        // Auto-Rocking Speed Selector:
+        val speedLabel = TextView(context).apply {
+            text = "Auto-Rock Cadence Speed:"
+            setTextColor(Color.WHITE)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+            setPadding(0, 0, 0, dp(6f))
+        }
+        root.addView(speedLabel)
+
+        val speedRow = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, 0, 0, dp(12f))
+        }
+        val speedOptions = intArrayOf(6, 8, 12, 24)
+        for (spd in speedOptions) {
+            val isCurrentSpeed = ((1000L / canvasView.rockerIntervalMs).toInt() == spd)
+            val btn = createStudioButton("${spd} FPS") {
+                canvasView.rockerIntervalMs = (1000L / spd)
+                Toast.makeText(activity, "Rocker speed set to $spd FPS", Toast.LENGTH_SHORT).show()
+            }
+            styleButton(btn, isHighlighted = isCurrentSpeed, accentColor = Color.rgb(32, 191, 107))
+            speedRow.addView(btn, LinearLayout.LayoutParams(0, dp(34f), 1f).apply { marginEnd = dp(4f) })
+        }
+        root.addView(speedRow)
+
+        // Auto-Rock Toggle Button:
+        val btnAutoRock = createStudioButton(if (isRocking) "⏹ Stop Continuous Rocking" else "▶ Start Continuous 3-Drawing Rocking") {
+            canvasView.toggleInbetweenRocker()
+            refreshUiState()
+        }
+        styleButton(btnAutoRock, isHighlighted = isRocking, accentColor = Color.rgb(255, 120, 60))
+        root.addView(btnAutoRock, LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, dp(40f)).apply { bottomMargin = dp(6f) })
+
+        val btnFiveFrames = createStudioButton("↔ 5-Frame Wide Arc Rocker") {
+            canvasView.startInbetweenRocker(speedFps = 8, useFiveFrames = true)
+            refreshUiState()
+        }
+        root.addView(btnFiveFrames, LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, dp(36f)).apply { bottomMargin = dp(6f) })
+
+        AlertDialog.Builder(activity)
+            .setTitle("🔁 Flipbook Inbetween Rocker Studio")
+            .setView(root)
+            .setPositiveButton("Done", null)
             .show()
     }
 

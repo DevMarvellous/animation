@@ -59,8 +59,10 @@ To ensure we can add 100+ pro features without spaghetti code, all code under `a
 com.animationapp/
 ├── MainActivity.kt                        # App entry point, lifecycle, memory trim, crash recovery
 ├── audio/
+│   ├── ExternalAudioImportEngine.kt       # Native MediaCodec/MediaExtractor acoustic envelope & audio sync
 │   ├── LipSyncAudioEngine.kt              # Preston Blair 2D mouth phonemes + PCM formant scrub synth
-│   └── VoiceoverWaveformEngine.kt         # Vocal syllable waveform bars + 1-tap Auto-Lip-Sync generator
+│   ├── VoiceoverWaveformEngine.kt         # Vocal syllable waveform bars + 1-tap Auto-Lip-Sync generator
+│   └── VoiceRecorderEngine.kt             # Direct in-app microphone recording with live VU meter
 ├── core/
 │   ├── config/StudioConfig.kt             # Central compile-time tuning constants
 │   ├── config/StudioPreferences.kt        # Live in-app UX comfort tuner (Palm Rejection, Turbo Mode, Grid)
@@ -161,7 +163,16 @@ com.animationapp/
     - **1-Tap Lasso Deselect**: Tapping `⬠ Lasso` while active deselects the selection without having to switch tools.
     - **Light Table Reset**: Tapping `💡 Shift` while active immediately resets light-table offset back to center.
   - **Verified Clean Cloud Build (`39688178134` - Commit `43b123f`)**: Completed 100% **SUCCESS** with `ProAnimationStudio-Release-APK` (116 KB, ID: `12387560834`) and `ProAnimationStudio-Debug-APK` (1.04 MB, ID: `12387600772`).
-- **2026-10-22 (Session 10 - Layer Clipping Masks & Recent Color History Strip Completed)**:
+- **2026-10-22 (Session 11 - Direct Microphone Voice Recording & 3-Drawing Inbetween Rocker Completed)**:
+  - **Phase 29: Direct Microphone Voice Recording (`🎙 Record`)**:
+    - `AndroidManifest.xml` & `MainActivity.kt`: Added `RECORD_AUDIO` permission with runtime permission dialog (`REQUEST_CODE_RECORD_AUDIO = 7002`).
+    - `VoiceRecorderEngine.kt`: Built zero-bloat native `MediaRecorder` engine with 44.1kHz AAC/M4A capture, elapsed duration tracking, and 100ms real-time VU meter peak amplitude sampling (`getNormalizedPeakAmplitude`).
+    - `ExternalAudioImportEngine.kt`: Added `importAudioFileDirectAsync` so mic recordings are decoded directly via `MediaExtractor` + `MediaCodec` into frame-accurate acoustic waveforms (`▁▂▃▅▇`), Preston Blair mouth phonemes (`A/I`, `E`, `O`, `U`, `M/B/P`, `F/V`, `L/TH`), and `MediaPlayer` scrub synchronization.
+    - `StudioWorkspaceLayout.kt`: In `showAudioStudioDialog()`, added `🎙 Record Voice / Dialogue (Microphone)` and built interactive `showMicrophoneRecorderDialog()` with live timer, 10-bar VU volume meter, optional stage playback sync while speaking, and 1-tap "Stop & Apply to Timeline".
+  - **Phase 30: Flipbook 3-Drawing Inbetween Rocker (`🔁 Rock`)**:
+    - `AnimationCanvasView.kt`: Added `isRocking`, `startInbetweenRocker`, `stopInbetweenRocker`, `toggleInbetweenRocker`, `jumpToRockerPrev`, `jumpToRockerCur`, `jumpToRockerNext`, and `rockerIntervalMs`. Built ping-pong rocker stepping inside `onDraw()` (`N-1 ⇄ N ⇄ N+1`) with automatic safety stop upon pen touch or tool selection so animators never draw on shifting frames.
+    - `StudioWorkspaceLayout.kt`: Added `rockerBtn` on the bottom timeline bar right next to `📖 Roll` with active state highlight (`🔁 Rock:ON` coral highlight). Built `showInbetweenRockerStudioDialog()` with 3-pill tactile flip strip (`◀ Frame #N-1`, `● Frame #N`, `Frame #N+1 ▶`), 4 speed options (6, 8, 12, 24 FPS), and 5-frame wide arc rocker.
+
   - **Phase 27: Layer Clipping Masks (`✂ Clip`)**:
     - `AnimationLayer.kt`: Added `var isClippingMask: Boolean = false` with default false (backward compatible).
     - `CrashSafeAutosave.kt`: Bumped to `MAGIC_HEADER_V5` (`PAS5` = `0x50415335`). Serializes and parses `isClippingMask` for all layers, while maintaining full backward compatibility for `PAS3` and `PAS4`.
