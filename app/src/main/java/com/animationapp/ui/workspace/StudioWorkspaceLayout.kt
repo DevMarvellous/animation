@@ -84,6 +84,7 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
     private lateinit var timeFrameBadge: TextView
     private lateinit var sizeLabel: TextView
     private lateinit var activeColorDot: View
+    private var recentColorsDockStrip: LinearLayout? = null
     private lateinit var toolButtons: Map<StudioToolType, TextView>
 
     private var rollStartX = 0f
@@ -564,6 +565,22 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
         dock.addView(
             activeColorDot,
             LinearLayout.LayoutParams(dp(24f), dp(24f)).apply { bottomMargin = dp(4f) }
+        )
+
+        // Feature 4: Recent Color History Strip on Side Dock
+        val recentScroll = HorizontalScrollView(context).apply {
+            isHorizontalScrollBarEnabled = false
+        }
+        val recentStrip = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        recentScroll.addView(recentStrip)
+        recentColorsDockStrip = recentStrip
+
+        dock.addView(
+            recentScroll,
+            LinearLayout.LayoutParams(dp(74f), dp(22f)).apply { bottomMargin = dp(4f) }
         )
 
         val colorColumn = LinearLayout(context).apply {
@@ -1169,7 +1186,8 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
 
         val activeLayer = proj.activeLayer
         val refBadge = if (activeLayer.isReferenceLayer) " [Ref]" else ""
-        layersBtn.text = "🗂 ${activeLayer.name}$refBadge"
+        val clipBadge = if (activeLayer.isClippingMask) " [✂Clip]" else ""
+        layersBtn.text = "🗂 ${activeLayer.name}$clipBadge$refBadge"
         styleButton(layersBtn, isHighlighted = true, accentColor = Color.rgb(95, 80, 210))
 
         val onionOn = proj.isOnionSkinEnabled
@@ -1245,8 +1263,44 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
         }
         sizeLabel.text = "${currentSize.toInt()}px"
         activeColorDot.background = createColorOval(canvasView.brushColor, strokeWidthDp = 3f, strokeColor = Color.WHITE)
+        updateRecentColorsDockStrip()
 
         rebuildTimelinePills()
+    }
+
+    private fun updateRecentColorsDockStrip() {
+        val strip = recentColorsDockStrip ?: return
+        ColorPaletteStudio.ensureLoaded(context)
+        val recents = ColorPaletteStudio.recentColors
+        strip.removeAllViews()
+        for (c in recents) {
+            val isSelected = (c == canvasView.brushColor)
+            val dot = View(context).apply {
+                background = createColorOval(
+                    c,
+                    strokeWidthDp = if (isSelected) 2.5f else 1f,
+                    strokeColor = if (isSelected) Color.WHITE else Color.rgb(75, 80, 95)
+                )
+                setOnClickListener {
+                    canvasView.brushColor = c
+                    if (canvasView.activeTool == StudioToolType.ERASER || canvasView.activeTool == StudioToolType.HAND_PAN) {
+                        selectTool(StudioToolType.BRUSH)
+                    } else {
+                        refreshUiState()
+                    }
+                    canvasView.invalidate()
+                }
+                setOnLongClickListener {
+                    val hex = String.format("#%06X", 0xFFFFFF and c)
+                    Toast.makeText(activity, "Recent Color: $hex", Toast.LENGTH_SHORT).show()
+                    true
+                }
+            }
+            val lp = LinearLayout.LayoutParams(dp(18f), dp(18f)).apply {
+                marginEnd = dp(3f)
+            }
+            strip.addView(dot, lp)
+        }
     }
 
     private fun rebuildTimelinePills() {
@@ -1756,11 +1810,13 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
             }
 
             val titleTv = TextView(context).apply {
+                val clipTag = if (layer.isClippingMask) " ↳✂Clip" else ""
                 val refTag = if (layer.isReferenceLayer) " ⭐Ref" else ""
                 val alphaTag = if (layer.isAlphaLocked) " 🔒Alpha" else ""
                 val vfxTag = if (layer.hasActiveVfx()) " ✨VFX" else ""
                 val tweenTag = if (layer.tweenTrack.hasKeyframes()) " 📈Tween" else ""
-                text = "${lIdx + 1}. ${layer.name}$refTag$alphaTag$vfxTag$tweenTag (${layer.blendMode.label})"
+                val indent = if (layer.isClippingMask) "  ↳ " else ""
+                text = "$indent${lIdx + 1}. ${layer.name}$clipTag$refTag$alphaTag$vfxTag$tweenTag (${layer.blendMode.label})"
                 setTextColor(Color.WHITE)
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
                 setOnClickListener {
@@ -1778,6 +1834,24 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
                 refreshUiState()
                 canvasView.invalidate()
             }
+
+            val btnClip = createStudioButton(if (layer.isClippingMask) "✂Clip:ON" else "✂Clip") {
+                if (lIdx == 0) {
+                    Toast.makeText(activity, "Bottom layer (Layer 1) cannot be clipped", Toast.LENGTH_SHORT).show()
+                } else {
+                    layer.isClippingMask = !layer.isClippingMask
+                    proj.currentFrame.isCacheDirty = true
+                    canvasView.triggerAutosave()
+                    refreshUiState()
+                    canvasView.invalidate()
+                    Toast.makeText(
+                        activity,
+                        if (layer.isClippingMask) "✂ Clipping Mask ON: Clips to layer below" else "Clipping Mask OFF",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            }
+            styleButton(btnClip, isHighlighted = layer.isClippingMask, accentColor = Color.rgb(235, 75, 110))
 
             val btnRef = createStudioButton(if (layer.isReferenceLayer) "⭐Ref" else "Set Ref") {
                 canvasView.toggleReferenceLayer(lIdx)
@@ -1807,7 +1881,7 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
             }
             btnBlendRef = btnBlend
 
-            listOf(btnVis, btnRef, btnAlpha, btnVfx, btnBlend).forEach { b ->
+            listOf(btnVis, btnClip, btnRef, btnAlpha, btnVfx, btnBlend).forEach { b ->
                 topLine.addView(
                     b,
                     LinearLayout.LayoutParams(LayoutParams.WRAP_CONTENT, dp(30f)).apply { marginStart = dp(4f) }

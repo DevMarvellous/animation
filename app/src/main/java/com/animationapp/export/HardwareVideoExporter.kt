@@ -98,6 +98,11 @@ object HardwareVideoExporter {
 
         val scratchLayerBmp = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         val scratchCanvas = Canvas(scratchLayerBmp)
+        val clipScratchBmp = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val clipScratchCanvas = Canvas(clipScratchBmp)
+        val clipMaskPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply {
+            xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_ATOP)
+        }
         val strokePaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.DITHER_FLAG).apply {
             style = Paint.Style.STROKE
             strokeJoin = Paint.Join.ROUND
@@ -125,31 +130,99 @@ object HardwareVideoExporter {
                         try {
                             surfaceCanvas.drawColor(project.stageBackgroundColor)
 
-                            for (lIdx in 0 until project.layers.size) {
-                                val layer = project.layers[lIdx]
-                                if (!layer.isVisible) continue
-                                val cel = frame.getCel(lIdx)
-                                if (!cel.hasContent()) continue
-
-                                scratchCanvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
-                                scratchCanvas.save()
-                                if (layer.tweenTrack.hasKeyframes()) {
-                                    scratchCanvas.concat(
-                                        layer.tweenTrack.buildLayerMatrix(fIdx, width, height, tweenScratch5)
-                                    )
+                            val layers = project.layers
+                            var lIdx = 0
+                            while (lIdx < layers.size) {
+                                val baseIdx = lIdx
+                                var chainEnd = baseIdx + 1
+                                while (chainEnd < layers.size && layers[chainEnd].isClippingMask) {
+                                    chainEnd++
                                 }
-                                renderCel(
-                                    scratchCanvas,
-                                    cel,
-                                    layer,
-                                    fIdx * 10 + hold,
-                                    strokePaint,
-                                    eraserXfer,
-                                    alphaLockXfer
-                                )
-                                scratchCanvas.restore()
-                                layer.syncCompositingPaint()
-                                surfaceCanvas.drawBitmap(scratchLayerBmp, 0f, 0f, layer.compositingPaint)
+
+                                if (chainEnd == baseIdx + 1) {
+                                    val layer = layers[baseIdx]
+                                    if (layer.isVisible) {
+                                        val cel = frame.getCel(baseIdx)
+                                        if (cel.hasContent()) {
+                                            scratchCanvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
+                                            scratchCanvas.save()
+                                            if (layer.tweenTrack.hasKeyframes()) {
+                                                scratchCanvas.concat(
+                                                    layer.tweenTrack.buildLayerMatrix(fIdx, width, height, tweenScratch5)
+                                                )
+                                            }
+                                            renderCel(
+                                                scratchCanvas,
+                                                cel,
+                                                layer,
+                                                fIdx * 10 + hold,
+                                                strokePaint,
+                                                eraserXfer,
+                                                alphaLockXfer
+                                            )
+                                            scratchCanvas.restore()
+                                            layer.syncCompositingPaint()
+                                            surfaceCanvas.drawBitmap(scratchLayerBmp, 0f, 0f, layer.compositingPaint)
+                                        }
+                                    }
+                                    lIdx++
+                                } else {
+                                    val baseLayer = layers[baseIdx]
+                                    if (baseLayer.isVisible) {
+                                        val baseCel = frame.getCel(baseIdx)
+                                        scratchCanvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
+                                        if (baseCel.hasContent()) {
+                                            scratchCanvas.save()
+                                            if (baseLayer.tweenTrack.hasKeyframes()) {
+                                                scratchCanvas.concat(
+                                                    baseLayer.tweenTrack.buildLayerMatrix(fIdx, width, height, tweenScratch5)
+                                                )
+                                            }
+                                            renderCel(
+                                                scratchCanvas,
+                                                baseCel,
+                                                baseLayer,
+                                                fIdx * 10 + hold,
+                                                strokePaint,
+                                                eraserXfer,
+                                                alphaLockXfer
+                                            )
+                                            scratchCanvas.restore()
+                                        }
+
+                                        for (cIdx in (baseIdx + 1) until chainEnd) {
+                                            val clipLayer = layers[cIdx]
+                                            if (!clipLayer.isVisible) continue
+                                            val clipCel = frame.getCel(cIdx)
+                                            if (!clipCel.hasContent()) continue
+
+                                            clipScratchCanvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
+                                            clipScratchCanvas.save()
+                                            if (clipLayer.tweenTrack.hasKeyframes()) {
+                                                clipScratchCanvas.concat(
+                                                    clipLayer.tweenTrack.buildLayerMatrix(fIdx, width, height, tweenScratch5)
+                                                )
+                                            }
+                                            renderCel(
+                                                clipScratchCanvas,
+                                                clipCel,
+                                                clipLayer,
+                                                fIdx * 10 + hold,
+                                                strokePaint,
+                                                eraserXfer,
+                                                alphaLockXfer
+                                            )
+                                            clipScratchCanvas.restore()
+
+                                            clipMaskPaint.alpha = (clipLayer.opacity.coerceIn(0f, 1f) * 255f).toInt()
+                                            scratchCanvas.drawBitmap(clipScratchBmp, 0f, 0f, clipMaskPaint)
+                                        }
+
+                                        baseLayer.syncCompositingPaint()
+                                        surfaceCanvas.drawBitmap(scratchLayerBmp, 0f, 0f, baseLayer.compositingPaint)
+                                    }
+                                    lIdx = chainEnd
+                                }
                             }
                         } finally {
                             inputSurface.unlockCanvasAndPost(surfaceCanvas)
@@ -173,6 +246,7 @@ object HardwareVideoExporter {
             }, currentTrackIndex = { trackIndex }, isMuxerStarted = { muxerStarted }, forcePtsUs = presentationTimeUs)
         } finally {
             scratchLayerBmp.recycle()
+            clipScratchBmp.recycle()
             try {
                 encoder.stop()
                 encoder.release()

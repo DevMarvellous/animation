@@ -27,6 +27,7 @@ object CrashSafeAutosave {
 
     private const val MAGIC_HEADER_V3 = 0x50415333 // "PAS3"
     private const val MAGIC_HEADER_V4 = 0x50415334 // "PAS4"
+    private const val MAGIC_HEADER_V5 = 0x50415335 // "PAS5" - Phase 27: Layer Clipping Masks support
     private const val AUTOSAVE_FILE = "autosave.pas"
     private const val AUTOSAVE_TMP_FILE = "autosave.pas.tmp"
 
@@ -57,7 +58,7 @@ object CrashSafeAutosave {
     @Synchronized
     fun writeProjectToFile(targetFile: File, project: AnimationProject) {
         DataOutputStream(BufferedOutputStream(FileOutputStream(targetFile))).use { out ->
-            out.writeInt(MAGIC_HEADER_V4)
+            out.writeInt(MAGIC_HEADER_V5)
             out.writeUTF(project.projectName)
             out.writeInt(project.stageWidth)
             out.writeInt(project.stageHeight)
@@ -75,6 +76,7 @@ object CrashSafeAutosave {
                 out.writeBoolean(layer.isLocked)
                 out.writeBoolean(layer.isAlphaLocked)
                 out.writeBoolean(layer.isReferenceLayer)
+                out.writeBoolean(layer.isClippingMask)
                 out.writeFloat(layer.opacity)
                 out.writeInt(layer.blendMode.ordinal)
                 out.writeFloat(layer.vfxLineBoilPx)
@@ -127,7 +129,7 @@ object CrashSafeAutosave {
         return try {
             DataInputStream(BufferedInputStream(FileInputStream(sourceFile))).use { input ->
                 val magic = input.readInt()
-                if (magic != MAGIC_HEADER_V3 && magic != MAGIC_HEADER_V4) return false
+                if (magic != MAGIC_HEADER_V3 && magic != MAGIC_HEADER_V4 && magic != MAGIC_HEADER_V5) return false
 
                 targetProject.projectName = input.readUTF()
                 val loadedW = input.readInt().coerceIn(128, 2560)
@@ -147,6 +149,7 @@ object CrashSafeAutosave {
                     val locked = input.readBoolean()
                     val alphaLock = input.readBoolean()
                     val isRef = input.readBoolean()
+                    val isClip = if (magic == MAGIC_HEADER_V5) input.readBoolean() else false
                     val opacity = input.readFloat()
                     val blendOrd = input.readInt().coerceIn(0, blendModes.lastIndex)
                     val boilPx = input.readFloat()
@@ -159,6 +162,7 @@ object CrashSafeAutosave {
                             isLocked = locked,
                             isAlphaLocked = alphaLock,
                             isReferenceLayer = isRef,
+                            isClippingMask = isClip,
                             opacity = opacity,
                             blendMode = blendModes[blendOrd],
                             vfxLineBoilPx = boilPx,
@@ -177,7 +181,7 @@ object CrashSafeAutosave {
                     val hold = input.readInt().coerceIn(1, 24)
                     val phOrd = input.readInt().coerceIn(0, phonemes.lastIndex)
                     val amp = input.readFloat()
-                    val tagOrd = if (magic == MAGIC_HEADER_V4) input.readInt().coerceIn(0, frameTags.lastIndex) else 0
+                    val tagOrd = if (magic >= MAGIC_HEADER_V4) input.readInt().coerceIn(0, frameTags.lastIndex) else 0
                     val frame = AnimationFrame(
                         layerCount = layerCount,
                         exposureHold = hold,

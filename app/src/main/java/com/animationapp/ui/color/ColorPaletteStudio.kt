@@ -33,8 +33,10 @@ object ColorPaletteStudio {
 
     private const val PREFS_NAME = "pro_animation_color_palettes"
     private const val KEY_CUSTOM_SWATCHES = "custom_swatches_csv"
+    private const val KEY_RECENT_COLORS = "recent_colors_csv"
 
     val customSwatches = ArrayList<Int>()
+    val recentColors = ArrayList<Int>()
     private var isLoaded = false
 
     fun ensureLoaded(context: Context) {
@@ -57,6 +59,32 @@ object ColorPaletteStudio {
             customSwatches.add(Color.rgb(32, 191, 107))  // Forest Mint
             customSwatches.add(Color.rgb(247, 183, 49))  // Rim Light Gold
         }
+
+        val recentCsv = prefs.getString(KEY_RECENT_COLORS, null)
+        recentColors.clear()
+        if (!recentCsv.isNullOrBlank()) {
+            recentCsv.split(",").forEach { token ->
+                token.trim().toIntOrNull()?.let { recentColors.add(it) }
+            }
+        }
+        if (recentColors.isEmpty()) {
+            recentColors.add(Color.rgb(20, 22, 28))   // Ink Black
+            recentColors.add(Color.rgb(235, 59, 90))  // Red
+            recentColors.add(Color.rgb(45, 152, 218)) // Blue
+            recentColors.add(Color.rgb(32, 191, 107)) // Green
+            recentColors.add(Color.rgb(255, 255, 255))// White
+        }
+    }
+
+    fun recordRecentColor(context: Context, color: Int) {
+        ensureLoaded(context)
+        recentColors.remove(color)
+        recentColors.add(0, color)
+        while (recentColors.size > 10) {
+            recentColors.removeAt(recentColors.lastIndex)
+        }
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().putString(KEY_RECENT_COLORS, recentColors.joinToString(",")).apply()
     }
 
     fun saveCustomSwatch(context: Context, color: Int) {
@@ -206,6 +234,49 @@ object ColorPaletteStudio {
         root.addView(alphaLabel)
         root.addView(alphaSeek)
 
+        // Recent Colors Strip (Phase 28)
+        val recentLabel = TextView(activity).apply {
+            text = "Recent Colors:"
+            setTextColor(Color.rgb(190, 200, 220))
+            textSize = 12f
+            setPadding(0, dp(activity, 6f), 0, dp(activity, 4f))
+        }
+        root.addView(recentLabel)
+
+        val recentRow = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+
+        fun rebuildRecentRow() {
+            recentRow.removeAllViews()
+            for (recentColor in recentColors) {
+                val dot = View(activity).apply {
+                    background = createOval(recentColor, dp(activity, 1.5f), Color.rgb(120, 130, 150))
+                    setOnClickListener {
+                        Color.colorToHSV(recentColor, hsv)
+                        currentAlpha = Color.alpha(recentColor)
+                        valSeek.progress = (hsv[2] * 100).toInt()
+                        alphaSeek.progress = currentAlpha
+                        wheelView.invalidate()
+                        syncPreviewAndHex(fromWheelOrSliders = true)
+                    }
+                }
+                recentRow.addView(dot, LinearLayout.LayoutParams(dp(activity, 26f), dp(activity, 26f)).apply {
+                    marginEnd = dp(activity, 6f)
+                })
+            }
+        }
+        rebuildRecentRow()
+        val recentScroll = HorizontalScrollView(activity).apply {
+            isHorizontalScrollBarEnabled = false
+            addView(recentRow)
+        }
+        root.addView(recentScroll, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            dp(activity, 32f)
+        ))
+
         // Custom Character Swatch Palette Row
         val paletteHeader = LinearLayout(activity).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -267,7 +338,9 @@ object ColorPaletteStudio {
         AlertDialog.Builder(activity)
             .setTitle("🎨 Pro 2D Color Wheel & Character Palette")
             .setView(root)
-            .setPositiveButton("Done", null)
+            .setPositiveButton("Done") { _, _ ->
+                recordRecentColor(activity, computeCurrentColor())
+            }
             .show()
     }
 

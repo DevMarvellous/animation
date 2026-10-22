@@ -118,6 +118,7 @@ class AnimationLayer(
     var isLocked: Boolean = false,
     var isAlphaLocked: Boolean = false,
     var isReferenceLayer: Boolean = false,
+    var isClippingMask: Boolean = false,
     var opacity: Float = 1.0f,
     var blendMode: LayerBlendMode = LayerBlendMode.NORMAL,
     var vfxLineBoilPx: Float = 0f,

@@ -38,6 +38,7 @@ import com.animationapp.model.AnimationLayer
 import com.animationapp.model.AnimationProject
 import com.animationapp.model.LayerCel
 import com.animationapp.model.Stroke
+import com.animationapp.ui.color.ColorPaletteStudio
 import kotlin.math.atan2
 import kotlin.math.hypot
 
@@ -100,6 +101,11 @@ class AnimationCanvasView(
     private var compositeCacheCanvas: Canvas? = null
     private var scratchLayerBitmap: Bitmap? = null
     private var scratchLayerCanvas: Canvas? = null
+    private var clipScratchBitmap: Bitmap? = null
+    private var clipScratchCanvas: Canvas? = null
+    private val clipMaskPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply {
+        xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC_ATOP)
+    }
 
     // Pre-allocated Paints & Rects (Zero allocations in onDraw)
     private val workspaceBgColor = Color.rgb(18, 19, 24)
@@ -177,6 +183,14 @@ class AnimationCanvasView(
             scratchLayerBitmap = newScratch
             scratchLayerCanvas = Canvas(newScratch)
         }
+
+        val clip = clipScratchBitmap
+        if (clip == null || clip.isRecycled || clip.width != w || clip.height != h) {
+            clip?.let { if (!it.isRecycled) it.recycle() }
+            val newClip = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+            clipScratchBitmap = newClip
+            clipScratchCanvas = Canvas(newClip)
+        }
         project.currentFrame.isCacheDirty = true
     }
 
@@ -193,29 +207,93 @@ class AnimationCanvasView(
 
         val layers = project.layers
         val fIdx = project.currentFrameIndex
-        for (lIdx in 0 until layers.size) {
-            val layer = layers[lIdx]
-            if (!layer.isVisible) continue
-
-            val cel = frame.getCel(lIdx)
-            if (!cel.hasContent()) continue
-
-            scratchCanvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
-            scratchCanvas.save()
-            if (layer.tweenTrack.hasKeyframes()) {
-                val tweenMat = layer.tweenTrack.buildLayerMatrix(
-                    frameIndex = fIdx,
-                    stageWidth = project.stageWidth,
-                    stageHeight = project.stageHeight,
-                    evalScratch5 = layerTweenScratch5
-                )
-                scratchCanvas.concat(tweenMat)
+        var lIdx = 0
+        while (lIdx < layers.size) {
+            val baseIdx = lIdx
+            var chainEnd = baseIdx + 1
+            while (chainEnd < layers.size && layers[chainEnd].isClippingMask) {
+                chainEnd++
             }
-            renderCelOntoCanvas(scratchCanvas, cel, layer, fIdx + boilTickCounter)
-            scratchCanvas.restore()
 
-            layer.syncCompositingPaint()
-            compCanvas.drawBitmap(scratchBmp, 0f, 0f, layer.compositingPaint)
+            if (chainEnd == baseIdx + 1) {
+                // Standalone unclipped layer fast-path
+                val layer = layers[baseIdx]
+                if (layer.isVisible) {
+                    val cel = frame.getCel(baseIdx)
+                    if (cel.hasContent()) {
+                        scratchCanvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
+                        scratchCanvas.save()
+                        if (layer.tweenTrack.hasKeyframes()) {
+                            val tweenMat = layer.tweenTrack.buildLayerMatrix(
+                                frameIndex = fIdx,
+                                stageWidth = project.stageWidth,
+                                stageHeight = project.stageHeight,
+                                evalScratch5 = layerTweenScratch5
+                            )
+                            scratchCanvas.concat(tweenMat)
+                        }
+                        renderCelOntoCanvas(scratchCanvas, cel, layer, fIdx + boilTickCounter)
+                        scratchCanvas.restore()
+
+                        layer.syncCompositingPaint()
+                        compCanvas.drawBitmap(scratchBmp, 0f, 0f, layer.compositingPaint)
+                    }
+                }
+                lIdx++
+            } else {
+                // Clipping mask chain: layers[baseIdx] is base silhouette, layers[baseIdx + 1 until chainEnd] clip to it
+                val baseLayer = layers[baseIdx]
+                if (baseLayer.isVisible) {
+                    val baseCel = frame.getCel(baseIdx)
+                    scratchCanvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
+                    if (baseCel.hasContent()) {
+                        scratchCanvas.save()
+                        if (baseLayer.tweenTrack.hasKeyframes()) {
+                            val tweenMat = baseLayer.tweenTrack.buildLayerMatrix(
+                                frameIndex = fIdx,
+                                stageWidth = project.stageWidth,
+                                stageHeight = project.stageHeight,
+                                evalScratch5 = layerTweenScratch5
+                            )
+                            scratchCanvas.concat(tweenMat)
+                        }
+                        renderCelOntoCanvas(scratchCanvas, baseCel, baseLayer, fIdx + boilTickCounter)
+                        scratchCanvas.restore()
+                    }
+
+                    val clipCanvas = clipScratchCanvas
+                    val clipBmp = clipScratchBitmap
+                    if (clipCanvas != null && clipBmp != null) {
+                        for (cIdx in (baseIdx + 1) until chainEnd) {
+                            val clipLayer = layers[cIdx]
+                            if (!clipLayer.isVisible) continue
+                            val clipCel = frame.getCel(cIdx)
+                            if (!clipCel.hasContent()) continue
+
+                            clipCanvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
+                            clipCanvas.save()
+                            if (clipLayer.tweenTrack.hasKeyframes()) {
+                                val tweenMat = clipLayer.tweenTrack.buildLayerMatrix(
+                                    frameIndex = fIdx,
+                                    stageWidth = project.stageWidth,
+                                    stageHeight = project.stageHeight,
+                                    evalScratch5 = layerTweenScratch5
+                                )
+                                clipCanvas.concat(tweenMat)
+                            }
+                            renderCelOntoCanvas(clipCanvas, clipCel, clipLayer, fIdx + boilTickCounter)
+                            clipCanvas.restore()
+
+                            clipMaskPaint.alpha = (clipLayer.opacity.coerceIn(0f, 1f) * 255f).toInt()
+                            scratchCanvas.drawBitmap(clipBmp, 0f, 0f, clipMaskPaint)
+                        }
+                    }
+
+                    baseLayer.syncCompositingPaint()
+                    compCanvas.drawBitmap(scratchBmp, 0f, 0f, baseLayer.compositingPaint)
+                }
+                lIdx = chainEnd
+            }
         }
         frame.isCacheDirty = false
     }
@@ -761,6 +839,7 @@ class AnimationCanvasView(
                     )
                     if (finishedShape != null) {
                         project.currentFrame.addStrokeToLayer(project.activeLayerIndex, finishedShape)
+                        ColorPaletteStudio.recordRecentColor(context, brushColor)
                         project.currentFrame.isCacheDirty = true
                         triggerAutosave()
                         onStateChanged?.invoke()
@@ -834,6 +913,10 @@ class AnimationCanvasView(
                         project.currentFrame.addStrokeToLayer(project.activeLayerIndex, mStroke)
                     }
 
+                    if (!stroke.isEraser) {
+                        ColorPaletteStudio.recordRecentColor(context, stroke.color)
+                    }
+
                     activeStroke = null
                     activeMirrorStroke = null
                     project.currentFrame.isCacheDirty = true
@@ -852,6 +935,7 @@ class AnimationCanvasView(
             val pixel = bmp.getPixel(x, y)
             if (Color.alpha(pixel) > 10) {
                 brushColor = Color.rgb(Color.red(pixel), Color.green(pixel), Color.blue(pixel))
+                ColorPaletteStudio.recordRecentColor(context, brushColor)
                 onStateChanged?.invoke()
             }
         }
@@ -881,6 +965,7 @@ class AnimationCanvasView(
             expandUnderLinePx = 1,
             gapClosingRadiusPx = StudioPreferences.fillGapClosingRadiusPx
         )
+        ColorPaletteStudio.recordRecentColor(context, brushColor)
         targetCel.isCacheDirty = true
         project.currentFrame.isCacheDirty = true
         CrashReporter.logInfo(
@@ -1282,9 +1367,12 @@ class AnimationCanvasView(
         ExternalAudioImportEngine.release()
         compositeCacheBitmap?.let { if (!it.isRecycled) it.recycle() }
         scratchLayerBitmap?.let { if (!it.isRecycled) it.recycle() }
+        clipScratchBitmap?.let { if (!it.isRecycled) it.recycle() }
         compositeCacheBitmap = null
         compositeCacheCanvas = null
         scratchLayerBitmap = null
         scratchLayerCanvas = null
+        clipScratchBitmap = null
+        clipScratchCanvas = null
     }
 }
