@@ -161,26 +161,20 @@ com.animationapp/
     - **1-Tap Lasso Deselect**: Tapping `⬠ Lasso` while active deselects the selection without having to switch tools.
     - **Light Table Reset**: Tapping `💡 Shift` while active immediately resets light-table offset back to center.
   - **Verified Clean Cloud Build (`39688178134` - Commit `43b123f`)**: Completed 100% **SUCCESS** with `ProAnimationStudio-Release-APK` (116 KB, ID: `12387560834`) and `ProAnimationStudio-Debug-APK` (1.04 MB, ID: `12387600772`).
-- **2026-10-22 (Session 10 - Checkpoint / In-Progress Pause)**:
-  - **Phase 27: Layer Clipping Masks (`✂ Clip`) & Phase 28: Recent Color History Strip**:
-    - **Current Implementation State (Safe Checkpoint)**:
-      1. `AnimationLayer.kt`: Added `var isClippingMask: Boolean = false` with full backward compatibility.
-      2. `CrashSafeAutosave.kt`: Bumped to `MAGIC_HEADER_V5` (`PAS5` = `0x50415335`). Full serialization & deserialization of `isClippingMask` for all layers, seamlessly maintaining backwards compatibility for existing `PAS3` and `PAS4` project files.
-      3. `ColorPaletteStudio.kt`: Implemented 10-color LRU history (`recentColors`, `recordRecentColor(context, color)`), persistent in SharedPreferences, with an interactive horizontal scrolling strip in `ColorPaletteStudio.showDialog()`.
-      4. `AnimationCanvasView.kt`:
-         - Pre-allocated zero-allocation `clipScratchBitmap`, `clipScratchCanvas`, and `clipMaskPaint` (`PorterDuff.Mode.SRC_ATOP`) with proper cache allocation in `ensureCachesAllocated()` and recycling in `releaseMemory()`.
-         - Replaced simple layer iteration in `rebuildCompositeCacheIfNeeded()` with grouping compositing logic (preserves fast-path for unclipped layers; composites clipping chains strictly into the non-transparent alpha silhouette of base layers).
-         - Hooked `ColorPaletteStudio.recordRecentColor()` into `finishStroke()` (pen/pencil/marker/brush strokes), eyedropper color sampling, geometric shape completion, and smart bucket flood-fill.
-      5. `StudioWorkspaceLayout.kt`:
-         - Integrated `recentColorsDockStrip` on the side tool dock with horizontal scrolling, selected color ring highlight, 1-tap color selection, and long-press hex toast.
-         - Added `[✂Clip]` badge to `layersBtn.text` when active layer is a clipping mask.
-         - Added `btnClip` toggle (`✂Clip:ON` / `✂Clip`) and `↳✂Clip` title tag with indentation (`  ↳ `) in `showLayerManagerDialog()`, with guard toast preventing Layer 1 (bottom layer) from being clipped.
-      6. `HardwareVideoExporter.kt`: Fully integrated clipping mask chains with `clipScratchBmp` / `clipScratchCanvas` and `SRC_ATOP` into the hardware-accelerated 1080p MP4 render loop.
-      7. `GifAndZipSequenceExporter.kt`: Updated `writePngSequenceToZip()` with clipping mask chains.
-    - **Exact Next Steps Upon Resuming**:
-      1. Update `encodeProjectToGif89a()` in `GifAndZipSequenceExporter.kt` with `clipScratchBmp` and the clipping group loop.
-      2. Update `SpriteSheetExporter.kt` with `clipScratchBmp` and the clipping group loop.
-      3. Run `git status`, commit, push to `main`, and verify green GitHub Actions cloud CI build artifact.
+- **2026-10-22 (Session 10 - Layer Clipping Masks & Recent Color History Strip Completed)**:
+  - **Phase 27: Layer Clipping Masks (`✂ Clip`)**:
+    - `AnimationLayer.kt`: Added `var isClippingMask: Boolean = false` with default false (backward compatible).
+    - `CrashSafeAutosave.kt`: Bumped to `MAGIC_HEADER_V5` (`PAS5` = `0x50415335`). Serializes and parses `isClippingMask` for all layers, while maintaining full backward compatibility for `PAS3` and `PAS4`.
+    - `AnimationCanvasView.kt`: Pre-allocated `clipScratchBitmap`, `clipScratchCanvas`, and `clipMaskPaint` (`PorterDuff.Mode.SRC_ATOP`) with zero GC allocations in render loops. Implemented clipping mask chain compositing in `rebuildCompositeCacheIfNeeded()` (preserves fast-path for unclipped layers; composites clipping chains strictly inside the alpha bounds of the base layer below).
+    - `StudioWorkspaceLayout.kt`: In `showLayerManagerDialog()`, added `btnClip` toggle (`✂Clip:ON` / `✂Clip`) with `↳✂Clip` indicator tag and indented layer row (`  ↳ `). Bottom layer (Layer 1) is protected from clipping. Added `[✂Clip]` badge to `layersBtn.text`.
+    - Exporters Synchronized: Hardware MP4 Video (`HardwareVideoExporter.kt`), GIF89a Loop & PNG Sequence ZIP (`GifAndZipSequenceExporter.kt`), and Sprite Sheet PNG + JSON Atlas (`SpriteSheetExporter.kt`) all use identical clipping mask grouping and compositing logic.
+  - **Phase 28: Recent Color History Strip (Side Tool Dock & Palette Studio)**:
+    - `ColorPaletteStudio.kt`: Implemented 10-color LRU history strip (`recentColors`, `recordRecentColor(context, color)`), persisted across app restarts via SharedPreferences (`recent_colors_csv`). Added interactive horizontal scrolling strip in the Color Palette Studio dialog.
+    - Side Tool Dock: Added `recentColorsDockStrip` directly underneath the active color dot on the workspace tool dock. Displays 10 recent color dots with 1-tap switching (auto-exits Eraser/Pan tools back to Pen), thick white ring highlight on the active color, and long-press hex value toast.
+    - Live Auto-Recording: Integrated into brush strokes (`finishStroke()`), geometric shape completion (`shapeController.onTouchUp()`), eyedropper color sampling, and paint bucket fills.
+  - **Verified Clean Cloud Build (`39752443631` - Commit `5cdb0b3`)**:
+    - GitHub Actions ultra-optimized APK build completed 100% **SUCCESS**.
+    - Artifacts: `ProAnimationStudio-Release-APK` (124 KB, ID: `12414077912`), `ProAnimationStudio-Debug-APK` (1.06 MB, ID: `12414128079`).
 
   - **1-Tap Tool Detoggling Across All Utilities**: Tapping any active utility tool (`⌫ Erase`, `📐 Shapes`, `✂ Trim`, `⬠ Lasso`, `🦴 Rig`, `📈 Tween`, `🪣 Fill`, `🌈 Grad`, `🔤 Text`, `💧 Pick`, `🎥 Cam`, `💡 Shift`, `✥ Pan`) immediately detoggles it and returns to `✏ Pen`, preventing accidental lock-in.
   - **Dedicated Time Frames & Timing Studio Dialog (`showTimeFramesStudioDialog()`)**:
