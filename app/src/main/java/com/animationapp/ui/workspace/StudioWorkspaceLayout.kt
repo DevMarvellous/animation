@@ -264,12 +264,12 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
             canvasView.fitStageToScreen()
         }.apply {
             setOnLongClickListener {
-                StudioPreferences.isGridEnabled = !StudioPreferences.isGridEnabled
+                StudioPreferences.showGridOverlay = !StudioPreferences.showGridOverlay
                 StudioPreferences.save(context)
                 canvasView.invalidate()
                 Toast.makeText(
                     activity,
-                    if (StudioPreferences.isGridEnabled) "Grid Overlay: ON" else "Grid Overlay: OFF",
+                    if (StudioPreferences.showGridOverlay) "Grid Overlay: ON" else "Grid Overlay: OFF",
                     Toast.LENGTH_SHORT
                 ).show()
                 true
