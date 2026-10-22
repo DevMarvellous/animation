@@ -182,6 +182,7 @@ com.animationapp/
     - Long-press `⏱ 1s`: Quick menu to set current frame to 1s/2s, or set ALL frames to 2s/1s.
     - Long-press `🔁 Loop`: Instantly detoggles loop range back to playing all frames without opening a dialog.
     - Long-press `＋ Frame`: Quick menu to insert blank frame before current, after current, or insert 5/10 blank frames.
+  - **Verified Clean Cloud Build (`39731817256` - Commit `1e7f04c`)**: Completed 100% **SUCCESS** with `ProAnimationStudio-Release-APK` (119 KB, ID: `12405781038`) and `ProAnimationStudio-Debug-APK` (1.05 MB, ID: `12405805813`).
 
 
 
