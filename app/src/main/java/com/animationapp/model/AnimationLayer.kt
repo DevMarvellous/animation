@@ -41,6 +41,7 @@ class LayerCel {
 
     val strokes = ArrayList<Stroke>(24)
     private val redoStack = ArrayList<Stroke>(12)
+    var undoneFillBitmap: Bitmap? = null
 
     // Optional flood-fill bitmap overlay for bucket fills on this cel
     var fillBitmap: Bitmap? = null
@@ -53,11 +54,13 @@ class LayerCel {
     fun addStroke(stroke: Stroke) {
         strokes.add(stroke)
         redoStack.clear()
+        undoneFillBitmap?.let { if (!it.isRecycled) it.recycle() }
+        undoneFillBitmap = null
         isCacheDirty = true
     }
 
     fun canUndo(): Boolean = strokes.isNotEmpty() || fillBitmap != null
-    fun canRedo(): Boolean = redoStack.isNotEmpty()
+    fun canRedo(): Boolean = redoStack.isNotEmpty() || undoneFillBitmap != null
 
     fun undo(): Boolean {
         if (strokes.isNotEmpty()) {
@@ -67,7 +70,8 @@ class LayerCel {
             return true
         }
         if (fillBitmap != null) {
-            fillBitmap?.recycle()
+            undoneFillBitmap?.let { if (!it.isRecycled) it.recycle() }
+            undoneFillBitmap = fillBitmap
             fillBitmap = null
             swappedDiskPath = null
             isCacheDirty = true
@@ -77,11 +81,19 @@ class LayerCel {
     }
 
     fun redo(): Boolean {
-        if (redoStack.isEmpty()) return false
-        val restored = redoStack.removeAt(redoStack.lastIndex)
-        strokes.add(restored)
-        isCacheDirty = true
-        return true
+        if (redoStack.isNotEmpty()) {
+            val restored = redoStack.removeAt(redoStack.lastIndex)
+            strokes.add(restored)
+            isCacheDirty = true
+            return true
+        }
+        if (undoneFillBitmap != null) {
+            fillBitmap = undoneFillBitmap
+            undoneFillBitmap = null
+            isCacheDirty = true
+            return true
+        }
+        return false
     }
 
     fun clear() {
@@ -89,6 +101,8 @@ class LayerCel {
         redoStack.clear()
         fillBitmap?.let { if (!it.isRecycled) it.recycle() }
         fillBitmap = null
+        undoneFillBitmap?.let { if (!it.isRecycled) it.recycle() }
+        undoneFillBitmap = null
         swappedDiskPath = null
         isCacheDirty = true
     }

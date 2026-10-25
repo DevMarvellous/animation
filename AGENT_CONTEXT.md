@@ -225,6 +225,16 @@ com.animationapp/
   - **Verified Clean Cloud Build (`40213710565` - Commit `783efd8`)**:
     - GitHub Actions ultra-optimized APK build completed 100% **SUCCESS** on the first try.
     - Artifacts: `ProAnimationStudio-Release-APK` (134 KB, ID: `12606647131`), `ProAnimationStudio-Debug-APK` (1.04 MB, ID: `12607006268`).
+- **2026-10-25 (Session 13 - Studio Ergonomics, 2-Tier Timeline, Zen Mode, MP4 Audio Muxing & Edge-Case Polish)**:
+  - **Responsive 2-Tier Bottom Timeline Dock (`StudioWorkspaceLayout.kt`)**: Redesigned from a 1-row overflow into a clean 2-tier stacked dock:
+    - Tier 1: Full-width animation frame thumbnails strip (`frameScroll`) flanked by `＋ Frame`, `⧉ Clone`, `🗑 Del`.
+    - Tier 2: Transport & timing bar (`⏮`, `▶ Play`, `⏭`, `📖 Roll`, `🔁 Rock`, `⏱ 1s`, `🔁 Loop`, `⏱ TimeBadge`) wrapped in a horizontal scroll. Eliminates button squishing and clipping on portrait and compact devices.
+  - **1-Tap Collapsible Side Tool Dock (`StudioWorkspaceLayout.kt`)**: Added `◀ Dock` / `▶ Dock` collapse/expand toggle and reduced fixed heights (`toolsScroll` to 125dp, `swatchScroll` to 52dp) to prevent dock height collisions in landscape mode.
+  - **Fullscreen / Zen Drawing Mode (`StudioWorkspaceLayout.kt`)**: Added `⛶ Zen` top bar toggle to hide all toolbars and bottom timeline, giving artists 100% full-screen canvas glass for drawing, with a floating `⛶ Exit Zen` corner pill.
+  - **Hardware MP4 Audio Muxing (`HardwareVideoExporter.kt`)**: Implemented native `MediaExtractor` audio extraction and multi-track `MediaMuxer.addTrack(audioFormat)` so exported 1080p MP4 videos include character voice recordings and BGM soundtracks.
+  - **Audio Loop Resynchronization (`AnimationCanvasView.kt`)**: Automatically seeks `ExternalAudioImportEngine` back to start when the animation playhead loops, preventing audio drift across repeated loops.
+  - **Paint Bucket Flood Fill Redo (`AnimationLayer.kt`)**: Added `undoneFillBitmap` slot to `LayerCel` so undone paint bucket fills can be redone seamlessly.
+
 
 
 

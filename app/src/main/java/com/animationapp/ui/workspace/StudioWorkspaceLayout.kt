@@ -67,7 +67,14 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
     private val radialPieMenu = RadialPieMenuView(activity)
 
     private var isLeftHandedMode = false
+    private lateinit var topBarWrapper: View
     private lateinit var toolDockContainer: LinearLayout
+    private lateinit var bottomTimelineContainer: View
+    private lateinit var floatingZenExitBtn: TextView
+    private var isZenMode: Boolean = false
+    private var isDockCollapsed: Boolean = false
+    private lateinit var dockCollapseBtn: TextView
+    private lateinit var dockContentContainer: LinearLayout
     private lateinit var frameStripLayout: LinearLayout
     private lateinit var playPauseBtn: TextView
     private lateinit var sceneBtn: TextView
@@ -147,14 +154,29 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
         )
 
         // 3. Build Top Studio Action Bar
-        addView(buildTopActionBar())
+        topBarWrapper = buildTopActionBar()
+        addView(topBarWrapper)
 
         // 4. Build Side Dockable Tool & Color Panel
         toolDockContainer = buildSideToolDock()
         addView(toolDockContainer)
 
         // 5. Build Bottom Animation Timeline Bar
-        addView(buildBottomTimelineBar())
+        bottomTimelineContainer = buildBottomTimelineBar()
+        addView(bottomTimelineContainer)
+
+        // 6. Floating Zen Exit Button (Fullscreen Mode)
+        floatingZenExitBtn = createStudioButton("⛶ Exit Zen") {
+            toggleZenMode()
+        }.apply {
+            visibility = View.GONE
+            layoutParams = LayoutParams(LayoutParams.WRAP_CONTENT, dp(34f), Gravity.TOP or Gravity.START).apply {
+                leftMargin = dp(14f)
+                topMargin = dp(14f)
+            }
+        }
+        styleButton(floatingZenExitBtn, isHighlighted = true, accentColor = Color.rgb(235, 70, 70))
+        addView(floatingZenExitBtn)
 
         // Wire callbacks
         canvasView.onStateChanged = { refreshUiState() }
@@ -283,6 +305,10 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
             }
         }
 
+        val btnZen = createStudioButton("⛶ Zen") {
+            toggleZenMode()
+        }
+
         fpsBtn = createStudioButton("${canvasView.project.fps} FPS") {
             showFpsPickerDialog()
         }
@@ -318,7 +344,7 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
 
         listOf(
             btnUndo, btnRedo, sceneBtn, layersBtn, onionBtn, symBtn, camBtn, lipSyncBtn, audioBtn, refPinBtn,
-            pieMenuBtn, mirrorBtn, btnFit, fpsBtn, brushBtn, colorWheelBtn, btnTuneUx, exportBtn, btnHandMode, btnDiag
+            pieMenuBtn, mirrorBtn, btnFit, btnZen, fpsBtn, brushBtn, colorWheelBtn, btnTuneUx, exportBtn, btnHandMode, btnDiag
         ).forEach { btn ->
             val lp = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.WRAP_CONTENT,
@@ -346,7 +372,25 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
             background = createRoundedBg(Color.argb(230, 26, 28, 36), dp(14f))
-            setPadding(dp(8f), dp(8f), dp(8f), dp(8f))
+            setPadding(dp(6f), dp(6f), dp(6f), dp(6f))
+        }
+
+        dockCollapseBtn = TextView(context).apply {
+            text = "◀ Dock"
+            gravity = Gravity.CENTER
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 10f)
+            setTextColor(Color.rgb(175, 190, 220))
+            setPadding(dp(4f), dp(2f), dp(4f), dp(2f))
+            background = createRoundedBg(Color.rgb(38, 42, 54), dp(6f))
+            setOnClickListener {
+                toggleDockCollapse()
+            }
+        }
+        dock.addView(dockCollapseBtn, LinearLayout.LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(4f) })
+
+        dockContentContainer = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
         }
 
         val btnPen = createStudioButton("✏ Pen") { selectTool(StudioToolType.BRUSH) }
@@ -556,7 +600,7 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
             isVerticalScrollBarEnabled = false
             addView(toolsColumn)
         }
-        dock.addView(toolsScroll, LinearLayout.LayoutParams(LayoutParams.WRAP_CONTENT, dp(155f)))
+        dockContentContainer.addView(toolsScroll, LinearLayout.LayoutParams(LayoutParams.WRAP_CONTENT, dp(125f)))
 
         sizeLabel = TextView(context).apply {
             text = "${canvasView.brushSizePx.toInt()}px"
@@ -565,7 +609,7 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
             gravity = Gravity.CENTER
             setPadding(0, dp(2f), 0, dp(2f))
         }
-        dock.addView(sizeLabel)
+        dockContentContainer.addView(sizeLabel)
 
         activeColorDot = View(context).apply {
             background = createColorOval(canvasView.brushColor, strokeWidthDp = 3f, strokeColor = Color.WHITE)
@@ -573,7 +617,7 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
                 openColorPaletteStudio()
             }
         }
-        dock.addView(
+        dockContentContainer.addView(
             activeColorDot,
             LinearLayout.LayoutParams(dp(24f), dp(24f)).apply { bottomMargin = dp(4f) }
         )
@@ -589,7 +633,7 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
         recentScroll.addView(recentStrip)
         recentColorsDockStrip = recentStrip
 
-        dock.addView(
+        dockContentContainer.addView(
             recentScroll,
             LinearLayout.LayoutParams(dp(74f), dp(22f)).apply { bottomMargin = dp(4f) }
         )
@@ -621,7 +665,9 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
             isVerticalScrollBarEnabled = false
             addView(colorColumn)
         }
-        dock.addView(swatchScroll, LinearLayout.LayoutParams(LayoutParams.WRAP_CONTENT, dp(72f)))
+        dockContentContainer.addView(swatchScroll, LinearLayout.LayoutParams(LayoutParams.WRAP_CONTENT, dp(52f)))
+
+        dock.addView(dockContentContainer)
 
         dock.layoutParams = LayoutParams(
             LayoutParams.WRAP_CONTENT,
@@ -636,10 +682,9 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
 
     private fun buildBottomTimelineBar(): View {
         val bottomContainer = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
+            orientation = LinearLayout.VERTICAL
             background = createRoundedBg(Color.argb(235, 22, 24, 32), dp(14f))
-            setPadding(dp(8f), dp(6f), dp(8f), dp(6f))
+            setPadding(dp(8f), dp(5f), dp(8f), dp(5f))
         }
 
         val btnPrev = createStudioButton("⏮") {
@@ -891,31 +936,61 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
             addView(frameStripLayout)
         }
 
+        // Tier 1: Dedicated Frame Strip thumbnails (full width) flanked by + Frame, Clone, Del
+        val tier1 = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+
+        tier1.addView(
+            frameScroll,
+            LinearLayout.LayoutParams(0, dp(34f), 1f).apply {
+                marginEnd = dp(6f)
+            }
+        )
+
+        val frameActionMargin = dp(4f)
+        listOf(btnAddFrame, btnDupFrame, btnDelFrame).forEach { btn ->
+            tier1.addView(
+                btn,
+                LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(34f)).apply {
+                    marginStart = frameActionMargin
+                }
+            )
+        }
+
+        // Tier 2: Playback transport & timing bar (horizontally scrollable, 0 clipping!)
+        val transportRow = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+
         val controlMargin = dp(5f)
         listOf(btnPrev, playPauseBtn, btnNext, btnFlipbookRoll, rockerBtn, holdBtn, loopBtn, timeFrameBadge).forEach { btn ->
-            bottomContainer.addView(
+            transportRow.addView(
                 btn,
-                LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(36f)).apply {
+                LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(32f)).apply {
                     marginEnd = controlMargin
                 }
             )
         }
 
+        val transportScroll = HorizontalScrollView(context).apply {
+            isHorizontalScrollBarEnabled = false
+            addView(transportRow)
+        }
+
         bottomContainer.addView(
-            frameScroll,
-            LinearLayout.LayoutParams(0, dp(38f), 1f).apply {
-                marginEnd = controlMargin
+            tier1,
+            LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(4f)
             }
         )
 
-        listOf(btnAddFrame, btnDupFrame, btnDelFrame).forEach { btn ->
-            bottomContainer.addView(
-                btn,
-                LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(36f)).apply {
-                    marginStart = controlMargin
-                }
-            )
-        }
+        bottomContainer.addView(
+            transportScroll,
+            LinearLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT)
+        )
 
         bottomContainer.layoutParams = LayoutParams(
             LayoutParams.MATCH_PARENT,
@@ -928,6 +1003,28 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
         }
 
         return bottomContainer
+    }
+
+    fun toggleZenMode() {
+        isZenMode = !isZenMode
+        val vis = if (isZenMode) View.GONE else View.VISIBLE
+        topBarWrapper.visibility = vis
+        toolDockContainer.visibility = vis
+        bottomTimelineContainer.visibility = vis
+        floatingZenExitBtn.visibility = if (isZenMode) View.VISIBLE else View.GONE
+        if (isZenMode) {
+            floatingZenExitBtn.bringToFront()
+            Toast.makeText(activity, "Zen Mode: Fullscreen Canvas (Tap ⛶ Exit Zen to restore)", Toast.LENGTH_SHORT).show()
+        } else {
+            Toast.makeText(activity, "Zen Mode OFF: Studio UI Restored", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun toggleDockCollapse() {
+        isDockCollapsed = !isDockCollapsed
+        dockContentContainer.visibility = if (isDockCollapsed) View.GONE else View.VISIBLE
+        dockCollapseBtn.text = if (isDockCollapsed) "▶" else "◀ Dock"
+        Toast.makeText(activity, if (isDockCollapsed) "Tool dock collapsed" else "Tool dock expanded", Toast.LENGTH_SHORT).show()
     }
 
     private fun selectTool(tool: StudioToolType) {

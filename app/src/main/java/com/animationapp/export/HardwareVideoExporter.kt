@@ -10,11 +10,13 @@ import android.graphics.PorterDuff
 import android.graphics.PorterDuffXfermode
 import android.media.MediaCodec
 import android.media.MediaCodecInfo
+import android.media.MediaExtractor
 import android.media.MediaFormat
 import android.media.MediaMuxer
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
+import com.animationapp.audio.ExternalAudioImportEngine
 import com.animationapp.core.diagnostics.CrashReporter
 import com.animationapp.core.storage.DiskSwapManager
 import com.animationapp.engine.brush.ScreentoneEngine
@@ -26,6 +28,7 @@ import com.animationapp.model.LayerCel
 import com.animationapp.model.Stroke
 import java.io.File
 import java.io.FileInputStream
+import java.nio.ByteBuffer
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -97,6 +100,46 @@ object HardwareVideoExporter {
         val bufferInfo = MediaCodec.BufferInfo()
         var trackIndex = -1
         var muxerStarted = false
+
+        val audioFile = ExternalAudioImportEngine.cachedAudioFile?.takeIf { it.exists() }
+            ?: ExternalAudioImportEngine.cachedBgmFile?.takeIf { it.exists() }
+        var audioExtractor: MediaExtractor? = null
+        var audioTrackIndex = -1
+        var muxerAudioTrackIndex = -1
+
+        if (audioFile != null) {
+            try {
+                val extractor = MediaExtractor()
+                extractor.setDataSource(audioFile.absolutePath)
+                for (i in 0 until extractor.trackCount) {
+                    val f = extractor.getTrackFormat(i)
+                    val mime = f.getString(MediaFormat.KEY_MIME) ?: ""
+                    if (mime.startsWith("audio/")) {
+                        audioTrackIndex = i
+                        extractor.selectTrack(i)
+                        audioExtractor = extractor
+                        break
+                    }
+                }
+                if (audioTrackIndex < 0) {
+                    extractor.release()
+                }
+            } catch (t: Throwable) {
+                CrashReporter.logInfo("Exporter", "Audio extractor setup warning: ${t.message}")
+            }
+        }
+
+        val onConfigMuxer: () -> Unit = {
+            if (audioExtractor != null && audioTrackIndex >= 0) {
+                try {
+                    val aFormat = audioExtractor.getTrackFormat(audioTrackIndex)
+                    muxerAudioTrackIndex = muxer.addTrack(aFormat)
+                    CrashReporter.logInfo("Exporter", "Muxing audio track into MP4 export")
+                } catch (t: Throwable) {
+                    CrashReporter.logInfo("Exporter", "Audio addTrack error: ${t.message}")
+                }
+            }
+        }
 
         val scratchLayerBmp = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         val scratchCanvas = Canvas(scratchLayerBmp)
@@ -230,10 +273,13 @@ object HardwareVideoExporter {
                             inputSurface.unlockCanvasAndPost(surfaceCanvas)
                         }
 
-                        drainEncoder(encoder, muxer, bufferInfo, endOfStream = false, trackIndexSetter = {
-                            trackIndex = it
-                            muxerStarted = true
-                        }, currentTrackIndex = { trackIndex }, isMuxerStarted = { muxerStarted }, forcePtsUs = presentationTimeUs)
+                        drainEncoder(
+                            encoder, muxer, bufferInfo, endOfStream = false, trackIndexSetter = {
+                                trackIndex = it
+                                muxerStarted = true
+                            }, currentTrackIndex = { trackIndex }, isMuxerStarted = { muxerStarted }, forcePtsUs = presentationTimeUs,
+                            onMuxerConfiguring = onConfigMuxer
+                        )
 
                         presentationTimeUs += frameDurationUs
                     }
@@ -242,11 +288,41 @@ object HardwareVideoExporter {
 
             // Signal End of Stream
             encoder.signalEndOfInputStream()
-            drainEncoder(encoder, muxer, bufferInfo, endOfStream = true, trackIndexSetter = {
-                trackIndex = it
-                muxerStarted = true
-            }, currentTrackIndex = { trackIndex }, isMuxerStarted = { muxerStarted }, forcePtsUs = presentationTimeUs)
+            drainEncoder(
+                encoder, muxer, bufferInfo, endOfStream = true, trackIndexSetter = {
+                    trackIndex = it
+                    muxerStarted = true
+                }, currentTrackIndex = { trackIndex }, isMuxerStarted = { muxerStarted }, forcePtsUs = presentationTimeUs,
+                onMuxerConfiguring = onConfigMuxer
+            )
+
+            // Mux audio samples if audio track was added
+            if (muxerAudioTrackIndex >= 0 && audioExtractor != null && muxerStarted) {
+                try {
+                    val audioBuffer = ByteBuffer.allocate(64 * 1024)
+                    val audioBufferInfo = MediaCodec.BufferInfo()
+                    val maxAudioDurationUs = presentationTimeUs
+
+                    while (true) {
+                        val sampleSize = audioExtractor.readSampleData(audioBuffer, 0)
+                        if (sampleSize < 0) break
+                        val sampleTimeUs = audioExtractor.sampleTime
+                        if (sampleTimeUs > maxAudioDurationUs) break
+
+                        audioBufferInfo.offset = 0
+                        audioBufferInfo.size = sampleSize
+                        audioBufferInfo.presentationTimeUs = sampleTimeUs
+                        audioBufferInfo.flags = audioExtractor.sampleFlags
+                        muxer.writeSampleData(muxerAudioTrackIndex, audioBuffer, audioBufferInfo)
+                        audioExtractor.advance()
+                    }
+                    CrashReporter.logInfo("Exporter", "Audio track muxed successfully into MP4")
+                } catch (t: Throwable) {
+                    CrashReporter.logInfo("Exporter", "Audio sample muxing warning: ${t.message}")
+                }
+            }
         } finally {
+            try { audioExtractor?.release() } catch (_: Throwable) {}
             scratchLayerBmp.recycle()
             clipScratchBmp.recycle()
             try {
@@ -315,7 +391,8 @@ object HardwareVideoExporter {
         trackIndexSetter: (Int) -> Unit,
         currentTrackIndex: () -> Int,
         isMuxerStarted: () -> Boolean,
-        forcePtsUs: Long
+        forcePtsUs: Long,
+        onMuxerConfiguring: (() -> Unit)? = null
     ) {
         val timeoutUs = 10_000L
         while (true) {
@@ -325,6 +402,7 @@ object HardwareVideoExporter {
             } else if (status == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
                 val newFormat = encoder.outputFormat
                 val tIdx = muxer.addTrack(newFormat)
+                onMuxerConfiguring?.invoke()
                 muxer.start()
                 trackIndexSetter(tIdx)
             } else if (status >= 0) {

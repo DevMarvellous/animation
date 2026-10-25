@@ -391,10 +391,16 @@ class AnimationCanvasView(
                 currentHoldTick++
                 if (currentHoldTick >= project.currentFrame.exposureHold) {
                     currentHoldTick = 0
+                    val prevFrameIdx = project.currentFrameIndex
                     if (isPingPongPlayback) {
                         stepPlaybackPingPong()
                     } else {
                         project.stepForwardLooping()
+                    }
+                    val newFrameIdx = project.currentFrameIndex
+                    if (newFrameIdx < prevFrameIdx || (project.isLoopRangeEnabled && newFrameIdx == project.loopStartFrame && prevFrameIdx != newFrameIdx)) {
+                        // Animation looped back to start: resynchronize dual audio stems
+                        ExternalAudioImportEngine.startPlayback(newFrameIdx, project.fps)
                     }
                     project.currentFrame.isCacheDirty = true
                     LipSyncAudioEngine.playFrameScrubSlice(project.currentFrame.phonemeMarker)
