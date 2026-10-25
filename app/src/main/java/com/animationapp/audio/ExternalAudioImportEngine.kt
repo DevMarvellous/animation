@@ -40,10 +40,32 @@ object ExternalAudioImportEngine {
     private var activeMediaPlayer: MediaPlayer? = null
     var cachedAudioFile: File? = null
         private set
-    var audioDurationMs: Long = 0L
+    var voiceDurationMs: Long = 0L
+        private set
+    var voiceVolume: Float = 1.0f
+        private set
+    var isVoiceMuted: Boolean = false
         private set
 
-    fun hasAudio(): Boolean = cachedAudioFile != null && cachedAudioFile!!.exists()
+    // Track 2: Background Music (BGM) & Foley Sound Effects (SFX)
+    private var bgmMediaPlayer: MediaPlayer? = null
+    var cachedBgmFile: File? = null
+        private set
+    var bgmDurationMs: Long = 0L
+        private set
+    var bgmVolume: Float = 0.8f
+        private set
+    var isBgmMuted: Boolean = false
+        private set
+
+    val audioDurationMs: Long
+        get() = maxOf(voiceDurationMs, bgmDurationMs)
+
+    fun hasVoiceTrack(): Boolean = cachedAudioFile != null && cachedAudioFile!!.exists()
+
+    fun hasBgmTrack(): Boolean = cachedBgmFile != null && cachedBgmFile!!.exists()
+
+    fun hasAudio(): Boolean = hasVoiceTrack() || hasBgmTrack()
 
     /**
      * Imports an external audio file URI, copies it to local storage, decodes its PCM samples,
@@ -125,7 +147,7 @@ object ExternalAudioImportEngine {
         retriever.setDataSource(destFile.absolutePath)
         val durationStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
         val durationMs = durationStr?.toLongOrNull() ?: 0L
-        audioDurationMs = durationMs
+        voiceDurationMs = durationMs
         retriever.release()
 
         mainHandler.post { onProgress("Decoding acoustic waveform...") }
@@ -151,13 +173,13 @@ object ExternalAudioImportEngine {
             }
         }
 
-        // Initialize MediaPlayer
-        prepareMediaPlayer(destFile)
+        // Initialize Voice Track MediaPlayer
+        prepareVoicePlayer(destFile)
 
         val durSeconds = (durationMs / 1000f)
         CrashReporter.logInfo("AudioEngine", "Decoded ${amplitudes.size} frame envelope (${durSeconds}s)")
         mainHandler.post {
-            onComplete(true, "Loaded audio track: ${durSeconds}s synced to ${project.fps} FPS")
+            onComplete(true, "Loaded voice track: ${durSeconds}s synced to ${project.fps} FPS")
         }
     }
 
@@ -259,60 +281,193 @@ object ExternalAudioImportEngine {
         return amplitudes
     }
 
-    private fun prepareMediaPlayer(file: File) {
-        release()
+    private fun prepareVoicePlayer(file: File) {
+        try {
+            activeMediaPlayer?.stop()
+            activeMediaPlayer?.release()
+        } catch (_: Throwable) {}
+        activeMediaPlayer = null
+
         try {
             val player = MediaPlayer().apply {
                 setDataSource(file.absolutePath)
                 prepare()
+                val vol = if (isVoiceMuted) 0f else voiceVolume
+                setVolume(vol, vol)
             }
             activeMediaPlayer = player
         } catch (t: Throwable) {
-            CrashReporter.logInfo("AudioEngine", "MediaPlayer init error: ${t.message}")
+            CrashReporter.logInfo("AudioEngine", "Voice MediaPlayer init error: ${t.message}")
+        }
+    }
+
+    /**
+     * Imports Track 2 (Background Music / Foley SFX) from a URI.
+     */
+    fun importBgmAudioFileAsync(
+        context: Context,
+        audioUri: Uri,
+        onProgress: (String) -> Unit,
+        onComplete: (Boolean, String) -> Unit
+    ) {
+        val appContext = context.applicationContext
+        executor.execute {
+            try {
+                mainHandler.post { onProgress("Caching background music / SFX...") }
+
+                val destFile = File(appContext.filesDir, "project_bgm_track.mp3")
+                appContext.contentResolver.openInputStream(audioUri)?.use { input ->
+                    FileOutputStream(destFile).use { output ->
+                        input.copyTo(output)
+                    }
+                } ?: throw IllegalStateException("Cannot open selected BGM audio file")
+
+                cachedBgmFile = destFile
+
+                val retriever = MediaMetadataRetriever()
+                retriever.setDataSource(destFile.absolutePath)
+                val durationStr = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+                val durationMs = durationStr?.toLongOrNull() ?: 0L
+                bgmDurationMs = durationMs
+                retriever.release()
+
+                prepareBgmPlayer(destFile)
+
+                val durSeconds = (durationMs / 1000f)
+                CrashReporter.logInfo("AudioEngine", "Loaded Track 2 BGM: ${destFile.name} (${durSeconds}s)")
+                mainHandler.post {
+                    onComplete(true, "Loaded Track 2 BGM: ${String.format("%.1f", durSeconds)}s")
+                }
+
+            } catch (t: Throwable) {
+                CrashReporter.logInfo("AudioEngine", "BGM import failed: ${t.message}")
+                mainHandler.post {
+                    onComplete(false, t.message ?: "Failed to import background music")
+                }
+            }
+        }
+    }
+
+    private fun prepareBgmPlayer(file: File) {
+        try {
+            bgmMediaPlayer?.stop()
+            bgmMediaPlayer?.release()
+        } catch (_: Throwable) {}
+        bgmMediaPlayer = null
+
+        try {
+            val player = MediaPlayer().apply {
+                setDataSource(file.absolutePath)
+                prepare()
+                val vol = if (isBgmMuted) 0f else bgmVolume
+                setVolume(vol, vol)
+            }
+            bgmMediaPlayer = player
+        } catch (t: Throwable) {
+            CrashReporter.logInfo("AudioEngine", "BGM MediaPlayer init error: ${t.message}")
         }
     }
 
     fun startPlayback(startFrame: Int, fps: Int) {
-        val player = activeMediaPlayer ?: return
-        try {
-            val targetMs = (startFrame * 1000L / fps).toInt()
-            player.seekTo(targetMs)
-            player.start()
-        } catch (_: Throwable) {}
+        val targetMs = (startFrame * 1000L / fps).toInt()
+        activeMediaPlayer?.let { player ->
+            try {
+                val vol = if (isVoiceMuted) 0f else voiceVolume
+                player.setVolume(vol, vol)
+                player.seekTo(targetMs)
+                player.start()
+            } catch (_: Throwable) {}
+        }
+        bgmMediaPlayer?.let { player ->
+            try {
+                val vol = if (isBgmMuted) 0f else bgmVolume
+                player.setVolume(vol, vol)
+                player.seekTo(targetMs)
+                player.start()
+            } catch (_: Throwable) {}
+        }
     }
 
     fun pausePlayback() {
-        val player = activeMediaPlayer ?: return
         try {
-            if (player.isPlaying) {
-                player.pause()
-            }
+            if (activeMediaPlayer?.isPlaying == true) activeMediaPlayer?.pause()
+        } catch (_: Throwable) {}
+        try {
+            if (bgmMediaPlayer?.isPlaying == true) bgmMediaPlayer?.pause()
         } catch (_: Throwable) {}
     }
 
     fun scrubToFrame(frameIndex: Int, fps: Int) {
-        val player = activeMediaPlayer ?: return
+        val targetMs = (frameIndex * 1000L / fps).toInt()
+        val p1 = activeMediaPlayer
+        val p2 = bgmMediaPlayer
         try {
-            val targetMs = (frameIndex * 1000L / fps).toInt()
-            player.seekTo(targetMs)
-            // Play a crisp 80ms audio snippet for tactile phoneme scrub feedback
-            player.start()
+            p1?.seekTo(targetMs)
+            p2?.seekTo(targetMs)
+            p1?.start()
+            p2?.start()
             mainHandler.postDelayed({
                 try {
-                    if (player.isPlaying) player.pause()
+                    if (p1?.isPlaying == true) p1.pause()
+                    if (p2?.isPlaying == true) p2.pause()
                 } catch (_: Throwable) {}
             }, 80L)
         } catch (_: Throwable) {}
     }
 
-    fun removeAudio(project: AnimationProject) {
-        release()
+    fun setVoiceVolume(vol: Float) {
+        voiceVolume = vol.coerceIn(0f, 1f)
+        val effective = if (isVoiceMuted) 0f else voiceVolume
+        try { activeMediaPlayer?.setVolume(effective, effective) } catch (_: Throwable) {}
+    }
+
+    fun setBgmVolume(vol: Float) {
+        bgmVolume = vol.coerceIn(0f, 1f)
+        val effective = if (isBgmMuted) 0f else bgmVolume
+        try { bgmMediaPlayer?.setVolume(effective, effective) } catch (_: Throwable) {}
+    }
+
+    fun toggleVoiceMute(): Boolean {
+        isVoiceMuted = !isVoiceMuted
+        val effective = if (isVoiceMuted) 0f else voiceVolume
+        try { activeMediaPlayer?.setVolume(effective, effective) } catch (_: Throwable) {}
+        return isVoiceMuted
+    }
+
+    fun toggleBgmMute(): Boolean {
+        isBgmMuted = !isBgmMuted
+        val effective = if (isBgmMuted) 0f else bgmVolume
+        try { bgmMediaPlayer?.setVolume(effective, effective) } catch (_: Throwable) {}
+        return isBgmMuted
+    }
+
+    fun removeVoiceTrack(project: AnimationProject) {
+        try {
+            activeMediaPlayer?.stop()
+            activeMediaPlayer?.release()
+        } catch (_: Throwable) {}
+        activeMediaPlayer = null
         cachedAudioFile?.let { if (it.exists()) it.delete() }
         cachedAudioFile = null
-        audioDurationMs = 0L
+        voiceDurationMs = 0L
         for (f in project.frames) {
             f.audioAmplitude = 0f
         }
+    }
+
+    fun removeBgmTrack() {
+        try {
+            bgmMediaPlayer?.stop()
+            bgmMediaPlayer?.release()
+        } catch (_: Throwable) {}
+        bgmMediaPlayer = null
+        cachedBgmFile?.let { if (it.exists()) it.delete() }
+        cachedBgmFile = null
+        bgmDurationMs = 0L
+    }
+
+    fun removeAudio(project: AnimationProject) {
+        removeVoiceTrack(project)
     }
 
     fun release() {
@@ -321,5 +476,11 @@ object ExternalAudioImportEngine {
             activeMediaPlayer?.release()
         } catch (_: Throwable) {}
         activeMediaPlayer = null
+
+        try {
+            bgmMediaPlayer?.stop()
+            bgmMediaPlayer?.release()
+        } catch (_: Throwable) {}
+        bgmMediaPlayer = null
     }
 }

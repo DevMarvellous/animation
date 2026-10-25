@@ -17,6 +17,8 @@ import android.os.Environment
 import android.provider.MediaStore
 import com.animationapp.core.diagnostics.CrashReporter
 import com.animationapp.core.storage.DiskSwapManager
+import com.animationapp.engine.brush.ScreentoneEngine
+import com.animationapp.engine.brush.ScreentoneEngine.ScreentonePattern
 import com.animationapp.engine.vfx.LayerVfxEngine
 import com.animationapp.model.AnimationLayer
 import com.animationapp.model.AnimationProject
@@ -288,13 +290,20 @@ object HardwareVideoExporter {
                 strokePaint.strokeWidth = s.baseSize
                 strokePaint.color = Color.TRANSPARENT
                 strokePaint.maskFilter = null
+                strokePaint.shader = null
             } else {
                 s.brushPreset.applyToPaint(strokePaint, s.color, s.baseSize)
                 strokePaint.xfermode = if (isAlphaLocked && i > 0) alphaLockXfer else null
+                if (s.screentonePattern != ScreentonePattern.NONE) {
+                    strokePaint.shader = ScreentoneEngine.getShader(s.screentonePattern, s.color)
+                } else {
+                    strokePaint.shader = null
+                }
             }
             targetCanvas.drawPath(effectivePath, strokePaint)
             strokePaint.xfermode = null
             strokePaint.maskFilter = null
+            strokePaint.shader = null
         }
     }
 

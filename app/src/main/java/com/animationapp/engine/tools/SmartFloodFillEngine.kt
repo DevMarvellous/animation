@@ -2,6 +2,8 @@ package com.animationapp.engine.tools
 
 import android.graphics.Bitmap
 import android.graphics.Color
+import com.animationapp.engine.brush.ScreentoneEngine
+import com.animationapp.engine.brush.ScreentoneEngine.ScreentonePattern
 
 /**
  * High-speed, Zero-Object-Allocation Scanline Flood Fill Engine with:
@@ -22,7 +24,8 @@ object SmartFloodFillEngine {
         seedY: Int,
         fillColor: Int,
         expandUnderLinePx: Int = 1,
-        gapClosingRadiusPx: Int = 2
+        gapClosingRadiusPx: Int = 2,
+        screentonePattern: ScreentonePattern = ScreentonePattern.NONE
     ): Bitmap {
         val sx = seedX.coerceIn(0, stageWidth - 1)
         val sy = seedY.coerceIn(0, stageHeight - 1)
@@ -127,7 +130,9 @@ object SmartFloodFillEngine {
             }
 
             for (fillX in left..right) {
-                outPixels[rowOffset + fillX] = fillColor
+                if (screentonePattern == ScreentonePattern.NONE || ScreentoneEngine.isPixelOn(screentonePattern, fillX, y)) {
+                    outPixels[rowOffset + fillX] = fillColor
+                }
             }
 
             if (y > 0) {
@@ -177,7 +182,9 @@ object SmartFloodFillEngine {
                     if (hasFilledNeighbor) {
                         if (isFinalTrapStep || trueBoundary[idx].toInt() == 0) {
                             nextMask[idx] = 1
-                            outPixels[idx] = fillColor
+                            if (screentonePattern == ScreentonePattern.NONE || ScreentoneEngine.isPixelOn(screentonePattern, x, y)) {
+                                outPixels[idx] = fillColor
+                            }
                         }
                     }
                 }

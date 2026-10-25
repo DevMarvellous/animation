@@ -5,6 +5,7 @@ import android.graphics.Path
 import android.graphics.RectF
 import com.animationapp.core.config.StudioConfig
 import com.animationapp.engine.brush.BrushPreset
+import com.animationapp.engine.brush.ScreentoneEngine.ScreentonePattern
 import kotlin.math.abs
 
 /**
@@ -15,13 +16,15 @@ import kotlin.math.abs
  *
  * Supports:
  * - Pluggable `BrushPreset` (G-Pen, Sketch Pencil, Marker, Soft Airbrush, Pixel-Art).
+ * - Manga Screentone & Halftone Dot Shading (Phase 31).
  * - In-place 2D affine transformations (Translate, Scale, Rotate) for the Lasso Tool.
  */
 class Stroke(
     val color: Int,
     val baseSize: Float,
     val isEraser: Boolean = false,
-    val brushPreset: BrushPreset = BrushPreset.G_PEN
+    val brushPreset: BrushPreset = BrushPreset.G_PEN,
+    var screentonePattern: ScreentonePattern = ScreentonePattern.NONE
 ) {
     // Interleaved [x0, y0, p0, x1, y1, p1, ...]
     private var pointData = FloatArray(StudioConfig.INITIAL_STROKE_FLOAT_CAPACITY)

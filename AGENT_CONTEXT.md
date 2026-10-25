@@ -9,7 +9,7 @@
 - **Repository**: `https://github.com/DevMarvellous/animation.git` (Branch: `main`)
 - **Vision**: An industry-grade, Adobe Animate / Toon Boom Harmony / Callipeg / TVPaint-caliber 2D Animation Studio for Android.
 - **Non-Negotiable Constraints**:
-  1. **Zero Heavy Laptop Bloat**: The user does NOT want Android Studio, local Android SDKs, or emulators installed on their laptop. All APK compilation happens in the cloud via **GitHub Actions** (`.github/workflows/build-apk.yml`).
+  1. **Zero Heavy Laptop Bloat**: The user does NOT want Android Studio, local Android SDKs, or emulators installed on their laptop. All APK compilation happens in the cloud via **GitHub Actions** (`.github/wor kflows/build-apk.yml`).
   2. **Extreme Optimization for the Lowest-End Android Phones**: Must run at 60–120 FPS without lag or Out-Of-Memory (OOM) crashes even on \$70–\$100 budget phones (2GB RAM, weak MediaTek/Unisoc CPUs, low-res touch digitizers).
   3. **Zero Framework Bloat**: Pure Native Kotlin using direct Android OS Views (`android.view.View`, `android.app.Activity`) and Hardware-Accelerated Canvas/OpenGL/Bitmap pipelines—no Jetpack Compose or heavy third-party UI libraries that inflate RAM and APK size.
   4. **Modular, Plug-and-Play Architecture**: Every tool, brush, timeline action, and panel must be strictly decoupled into small, single-responsibility Kotlin files so adding new features or fixing bugs never breaks existing code.
@@ -80,8 +80,9 @@ com.animationapp/
 │   ├── AnimationCanvasView.kt             # Hardware stage canvas, multi-layer compositor, touch router
 │   ├── camera/Camera2DController.kt       # 2D Camera Keyframe Pan/Zoom/Rotate & Smoothstep Tweening
 │   ├── canvas/ViewportController.kt       # Viewport matrix (pan/zoom/rotate/mirror), inverse mapping
-│   ├── brush/BrushPreset.kt               # 5 2D Brushes (G-Pen, Pencil, Marker, Airbrush, Pixel Art)
+│   ├── brush/BrushPreset.kt               # 9 2D Brushes (G-Pen, Pencil, Marker, Airbrush, Pixel Art, Calligraphy, Chalk, Neon, Manga Screentone)
 │   ├── brush/InputStabilizer.kt           # Real-time Lazy-Mouse / Streamline stroke smoothing
+│   ├── brush/ScreentoneEngine.kt          # Procedural Manga Screentone & Halftone Dot Shading (GPU BitmapShader)
 │   ├── rigging/Skeleton2DController.kt    # 2D Cut-Out Skeletal Bone Rigging (FK + 2-Bone Law-of-Cosines IK)
 │   ├── tween/LayerTweenEngine.kt          # Per-Layer Keyframe Tweening, 5 Easing Curves & Motion Path Arc
 │   ├── vfx/LayerVfxEngine.kt              # Non-Destructive 2D VFX (Hand-Drawn Line-Boil, Anime Glow, Drop Shadow)
@@ -208,6 +209,20 @@ com.animationapp/
     - Long-press `🔁 Loop`: Instantly detoggles loop range back to playing all frames without opening a dialog.
     - Long-press `＋ Frame`: Quick menu to insert blank frame before current, after current, or insert 5/10 blank frames.
   - **Verified Clean Cloud Build (`39731817256` - Commit `1e7f04c`)**: Completed 100% **SUCCESS** with `ProAnimationStudio-Release-APK` (119 KB, ID: `12405781038`) and `ProAnimationStudio-Debug-APK` (1.05 MB, ID: `12405805813`).
+- **2026-10-25 (Session 12 - Manga Screentone & Halftone Dot Shading + Multi-Track Audio Studio)**:
+  - **Phase 31: Manga Screentone & Halftone Dot Shading (`🏁 Tone`)**:
+    - `ScreentoneEngine.kt`: Procedural GPU-accelerated `BitmapShader` repeating halftone dot patterns (`FINE_DOTS_15`, `MEDIUM_DOTS_30`, `HEAVY_DOTS_50`, `COARSE_POPDOTS_25`, `CROSSHATCH_45`) with zero runtime heap allocation via LRU shader cache keyed by pattern and color (< 25 KB RAM).
+    - `Stroke.kt`: Added `screentonePattern: ScreentonePattern` property to `Stroke` model.
+    - `BrushPreset.kt`: Added `MANGA_SCREENTONE` preset ("Manga Screentone", "🏁").
+    - `SmartFloodFillEngine.kt`: Integrated `ScreentoneEngine.isPixelOn()` mathematical evaluator for instantaneous screentone-patterned paint bucket flood fills.
+    - `AnimationCanvasView.kt`: Integrated `activeScreentonePattern`, automated pattern selection when Manga Screentone preset is chosen, shader binding during live drawing and bucket filling, and memory cleanup in `releaseMemory()`.
+    - Exporters Synchronized: Updated `HardwareVideoExporter.kt`, `GifAndZipSequenceExporter.kt`, and `SpriteSheetExporter.kt` to bind the screentone `BitmapShader` in `renderCel` so all video, GIF, ZIP sequence, and Sprite Sheet exports preserve halftone screentone shading with 100% fidelity.
+    - `StudioWorkspaceLayout.kt`: Added `[🏁Tone]` badge on `brushBtn`, brush button long-click shortcut, screentone button in `showBrushSettingsDialog()`, and `showScreentoneStudioDialog()`.
+  - **Phase 32: Multi-Track Audio Studio (Track 1 Voice + Track 2 BGM/SFX Dual Stems)**:
+    - `ExternalAudioImportEngine.kt`: Expanded from single audio track to dual-stem multi-track architecture (`cachedAudioFile` for Track 1 Voice/Dialogue and `cachedBgmFile` for Track 2 BGM/SFX) with two independent `MediaPlayer`s, independent volume controls (0%–100%), independent mute toggles, synchronous playback and scrubbing.
+    - `MainActivity.kt`: Declared `REQUEST_CODE_AUDIO_BGM = 7003` and handled BGM import result in `onActivityResult`.
+    - `StudioWorkspaceLayout.kt`: Added dynamic dual-track audio badge (`🎵 Audio [2-TRK]`, `[VOICE]`, `[BGM]`), designed comprehensive `showAudioStudioDialog()` with per-track status, mic recording, file import, lip-sync mapping, and built `showTrackVolumeDialog(isTrack1: Boolean)`, `launchBgmAudioPicker()`, and `importBgmAudioFromUri()`.
+
 
 
 

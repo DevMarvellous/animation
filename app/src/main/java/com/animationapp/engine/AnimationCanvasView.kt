@@ -22,6 +22,8 @@ import com.animationapp.core.storage.CrashSafeAutosave
 import com.animationapp.core.storage.DiskSwapManager
 import com.animationapp.engine.brush.BrushPreset
 import com.animationapp.engine.brush.InputStabilizer
+import com.animationapp.engine.brush.ScreentoneEngine
+import com.animationapp.engine.brush.ScreentoneEngine.ScreentonePattern
 import com.animationapp.engine.camera.Camera2DController
 import com.animationapp.engine.canvas.ViewportController
 import com.animationapp.engine.onion.OnionSkinRenderer
@@ -74,6 +76,7 @@ class AnimationCanvasView(
             }
         }
     var activeBrushPreset: BrushPreset = BrushPreset.G_PEN
+    var activeScreentonePattern: ScreentonePattern = ScreentonePattern.NONE
     var brushColor: Int = Color.rgb(20, 22, 28)
     var brushSizePx: Float = StudioConfig.DEFAULT_BRUSH_SIZE_PX
     var eraserSizePx: Float = StudioConfig.DEFAULT_ERASER_SIZE_PX
@@ -350,6 +353,7 @@ class AnimationCanvasView(
             strokePaint.strokeWidth = stroke.baseSize
             strokePaint.color = Color.TRANSPARENT
             strokePaint.maskFilter = null
+            strokePaint.shader = null
         } else {
             stroke.brushPreset.applyToPaint(strokePaint, stroke.color, stroke.baseSize)
             if (StudioPreferences.lowSpecTurboMode) {
@@ -357,10 +361,16 @@ class AnimationCanvasView(
                 strokePaint.maskFilter = null
             }
             strokePaint.xfermode = if (useAlphaLock) alphaLockXfermode else null
+            if (stroke.screentonePattern != ScreentonePattern.NONE) {
+                strokePaint.shader = ScreentoneEngine.getShader(stroke.screentonePattern, stroke.color)
+            } else {
+                strokePaint.shader = null
+            }
         }
         targetCanvas.drawPath(effectivePath, strokePaint)
         strokePaint.xfermode = null
         strokePaint.maskFilter = null
+        strokePaint.shader = null
     }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
@@ -896,11 +906,17 @@ class AnimationCanvasView(
                 stabilizer.reset(stageX, stageY)
                 val isEraser = (activeTool == StudioToolType.ERASER)
                 val size = if (isEraser) eraserSizePx else brushSizePx
+                val effectiveTone = if (activeBrushPreset == BrushPreset.MANGA_SCREENTONE && activeScreentonePattern == ScreentonePattern.NONE) {
+                    ScreentonePattern.MEDIUM_DOTS_30
+                } else {
+                    activeScreentonePattern
+                }
                 val stroke = Stroke(
                     color = brushColor,
                     baseSize = size,
                     isEraser = isEraser,
-                    brushPreset = activeBrushPreset
+                    brushPreset = activeBrushPreset,
+                    screentonePattern = if (isEraser) ScreentonePattern.NONE else effectiveTone
                 )
                 stroke.addPoint(stabilizer.smoothedX, stabilizer.smoothedY, pressure)
                 activeStroke = stroke
@@ -911,7 +927,8 @@ class AnimationCanvasView(
                         color = brushColor,
                         baseSize = size,
                         isEraser = isEraser,
-                        brushPreset = activeBrushPreset
+                        brushPreset = activeBrushPreset,
+                        screentonePattern = if (isEraser) ScreentonePattern.NONE else effectiveTone
                     )
                     mStroke.addPoint(mirrorX, stabilizer.smoothedY, pressure)
                     activeMirrorStroke = mStroke
@@ -1000,7 +1017,8 @@ class AnimationCanvasView(
             seedY = y,
             fillColor = brushColor,
             expandUnderLinePx = 1,
-            gapClosingRadiusPx = StudioPreferences.fillGapClosingRadiusPx
+            gapClosingRadiusPx = StudioPreferences.fillGapClosingRadiusPx,
+            screentonePattern = activeScreentonePattern
         )
         ColorPaletteStudio.recordRecentColor(context, brushColor)
         targetCel.isCacheDirty = true
@@ -1490,6 +1508,7 @@ class AnimationCanvasView(
 
     fun releaseMemory() {
         ExternalAudioImportEngine.release()
+        ScreentoneEngine.clearCache()
         compositeCacheBitmap?.let { if (!it.isRecycled) it.recycle() }
         scratchLayerBitmap?.let { if (!it.isRecycled) it.recycle() }
         clipScratchBitmap?.let { if (!it.isRecycled) it.recycle() }

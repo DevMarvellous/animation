@@ -35,6 +35,7 @@ import com.animationapp.core.storage.MultiProjectManager
 import com.animationapp.core.storage.StagePaperPreset
 import com.animationapp.engine.AnimationCanvasView
 import com.animationapp.engine.brush.BrushPreset
+import com.animationapp.engine.brush.ScreentoneEngine.ScreentonePattern
 import com.animationapp.engine.tools.GradientType
 import com.animationapp.engine.tools.Shape2DMode
 import com.animationapp.engine.tools.StudioToolType
@@ -288,6 +289,11 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
 
         brushBtn = createStudioButton("✒ G-Pen") {
             showBrushSettingsDialog()
+        }.apply {
+            setOnLongClickListener {
+                showScreentoneStudioDialog()
+                true
+            }
         }
 
         colorWheelBtn = createStudioButton("🎨 Color") {
@@ -1227,9 +1233,15 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
         lipSyncBtn.text = if (phoneme != LipSyncPhoneme.NONE) "👄 ${phoneme.code}" else "👄 LipSync"
         styleButton(lipSyncBtn, isHighlighted = (phoneme != LipSyncPhoneme.NONE), accentColor = Color.rgb(235, 70, 150))
 
-        val hasAudio = ExternalAudioImportEngine.hasAudio()
-        audioBtn.text = if (hasAudio) "🎵 Audio [ON]" else "🎵 Audio"
-        styleButton(audioBtn, isHighlighted = hasAudio, accentColor = Color.rgb(20, 210, 160))
+        val hasVoice = ExternalAudioImportEngine.hasVoiceTrack()
+        val hasBgm = ExternalAudioImportEngine.hasBgmTrack()
+        audioBtn.text = when {
+            hasVoice && hasBgm -> "🎵 Audio [2-TRK]"
+            hasVoice -> "🎵 Audio [VOICE]"
+            hasBgm -> "🎵 Audio [BGM]"
+            else -> "🎵 Audio"
+        }
+        styleButton(audioBtn, isHighlighted = (hasVoice || hasBgm), accentColor = Color.rgb(20, 210, 160))
 
         styleButton(
             refPinBtn,
@@ -1244,7 +1256,8 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
         )
 
         val preset = canvasView.activeBrushPreset
-        brushBtn.text = "${preset.icon} ${preset.label}"
+        val toneBadge = if (canvasView.activeScreentonePattern != ScreentonePattern.NONE) " [🏁Tone]" else ""
+        brushBtn.text = "${preset.icon} ${preset.label}$toneBadge"
 
         styleButton(mirrorBtn, isHighlighted = canvasView.viewport.isMirroredHorizontally, accentColor = Color.rgb(0, 180, 255))
 
@@ -2265,6 +2278,9 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
         for (preset in BrushPreset.values()) {
             val btn = createStudioButton("${preset.icon} ${preset.label}") {
                 canvasView.activeBrushPreset = preset
+                if (preset == BrushPreset.MANGA_SCREENTONE && canvasView.activeScreentonePattern == ScreentonePattern.NONE) {
+                    canvasView.activeScreentonePattern = ScreentonePattern.MEDIUM_DOTS_30
+                }
                 selectTool(StudioToolType.BRUSH)
             }
             styleButton(btn, isHighlighted = (canvasView.activeBrushPreset == preset), accentColor = Color.rgb(75, 123, 236))
@@ -2340,17 +2356,59 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
             })
         }
 
+        val hasTone = (canvasView.activeScreentonePattern != ScreentonePattern.NONE)
+        val toneBtn = createStudioButton(
+            if (hasTone) "🏁 Screentone: [${canvasView.activeScreentonePattern.label}]" else "🏁 Halftone Screentone: [OFF]"
+        ) {
+            showScreentoneStudioDialog()
+        }
+        styleButton(toneBtn, isHighlighted = hasTone, accentColor = Color.rgb(245, 175, 45))
+
         layout.addView(brushTitle)
         layout.addView(brushSeek)
         layout.addView(eraserTitle)
         layout.addView(eraserSeek)
         layout.addView(stabTitle)
         layout.addView(stabSeek)
+        layout.addView(toneBtn, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(38f)).apply { topMargin = dp(14f) })
 
         AlertDialog.Builder(activity)
             .setTitle("2D Brush Presets & Stabilizer Studio")
             .setView(layout)
             .setPositiveButton("Done", null)
+            .show()
+    }
+
+    private fun showScreentoneStudioDialog() {
+        val patterns = ScreentonePattern.values()
+        val items = patterns.map { pattern ->
+            val isCurrent = (canvasView.activeScreentonePattern == pattern)
+            val check = if (isCurrent) "  ✓ [ACTIVE]" else ""
+            when (pattern) {
+                ScreentonePattern.NONE -> "🚫 Flat Color (Disable Screentone)$check"
+                ScreentonePattern.FINE_DOTS_15 -> "🏁 ${pattern.label} (15% Manga Shadow / Skin Cel)$check"
+                ScreentonePattern.MEDIUM_DOTS_30 -> "🏁 ${pattern.label} (30% Classic Anime Cel Shade)$check"
+                ScreentonePattern.HEAVY_DOTS_50 -> "🏁 ${pattern.label} (50% Deep Shading / Checkerboard)$check"
+                ScreentonePattern.COARSE_POPDOTS_25 -> "🏁 ${pattern.label} (25% Pop-Art Halftone / Comic Texture)$check"
+                ScreentonePattern.CROSSHATCH_45 -> "🏁 ${pattern.label} (45° Diagonal Crosshatch / Speed Lines)$check"
+            }
+        }.toTypedArray()
+
+        AlertDialog.Builder(activity)
+            .setTitle("🏁 Manga Screentone & Halftone Studio")
+            .setItems(items) { _, which ->
+                val selected = patterns[which]
+                canvasView.activeScreentonePattern = selected
+                refreshUiState()
+                canvasView.invalidate()
+                val msg = if (selected == ScreentonePattern.NONE) {
+                    "Manga Screentone disabled (Flat color mode)"
+                } else {
+                    "Active Screentone: ${selected.label}"
+                }
+                Toast.makeText(activity, msg, Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton("Close", null)
             .show()
     }
 
@@ -2536,6 +2594,7 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
 
     companion object {
         const val REQUEST_CODE_AUDIO = 7001
+        const val REQUEST_CODE_AUDIO_BGM = 7003
     }
 
     private fun showGradientOptionsDialog() {
@@ -2599,72 +2658,171 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
     }
 
     private fun showAudioStudioDialog() {
-        val hasAudio = ExternalAudioImportEngine.hasAudio()
-        val durationSec = (ExternalAudioImportEngine.audioDurationMs / 1000f)
-        val statusText = if (hasAudio) "🟢 Audio Track Active (${durationSec}s)" else "⚪ No external audio track loaded"
+        val hasVoice = ExternalAudioImportEngine.hasVoiceTrack()
+        val hasBgm = ExternalAudioImportEngine.hasBgmTrack()
+        val voiceSec = String.format("%.1f", ExternalAudioImportEngine.voiceDurationMs / 1000f)
+        val bgmSec = String.format("%.1f", ExternalAudioImportEngine.bgmDurationMs / 1000f)
 
-        val options = if (hasAudio) {
-            arrayOf(
-                "🎙 Record Voice / Dialogue (Microphone)",
-                "📂 Import / Replace Audio File (.mp3, .wav, .m4a)",
-                "▶ Play Synchronized Audio Preview",
-                "👄 Auto-Lip-Sync to Voice Waveform",
-                "❌ Remove Audio Track"
-            )
+        val voiceStatus = if (hasVoice) {
+            val muteTag = if (ExternalAudioImportEngine.isVoiceMuted) " [MUTED]" else " [${(ExternalAudioImportEngine.voiceVolume * 100).toInt()}%]"
+            "🟢 Trk 1 Voice: ${voiceSec}s$muteTag"
         } else {
-            arrayOf(
-                "🎙 Record Voice / Dialogue (Microphone)",
-                "📂 Import External Audio File (.mp3, .wav, .m4a)",
-                "👄 Generate Procedural Voiceover Waveform"
-            )
+            "⚪ Trk 1 Voice: Empty"
         }
 
+        val bgmStatus = if (hasBgm) {
+            val muteTag = if (ExternalAudioImportEngine.isBgmMuted) " [MUTED]" else " [${(ExternalAudioImportEngine.bgmVolume * 100).toInt()}%]"
+            "🟣 Trk 2 BGM: ${bgmSec}s$muteTag"
+        } else {
+            "⚪ Trk 2 BGM: Empty"
+        }
+
+        val options = mutableListOf<String>()
+
+        // Track 1 options
+        if (hasVoice) {
+            options.add("🎙 Re-record Voice / Dialogue (Microphone)")
+            options.add("📂 Replace Track 1 Voice Audio (.mp3, .wav, .m4a)")
+            options.add("🎚 Track 1 Voice Volume & Mute")
+            options.add("👄 Auto-Lip-Sync to Voice Waveform")
+            options.add("🗑 Remove Track 1 Voice")
+        } else {
+            options.add("🎙 Record Voice / Dialogue (Microphone)")
+            options.add("📂 Import Track 1 Voice Audio (.mp3, .wav, .m4a)")
+            options.add("👄 Generate Procedural Voiceover Waveform")
+        }
+
+        // Track 2 options
+        if (hasBgm) {
+            options.add("🎵 Replace Track 2 BGM / Foley SFX (.mp3, .wav, .m4a)")
+            options.add("🎚 Track 2 BGM Volume & Mute")
+            options.add("🗑 Remove Track 2 BGM")
+        } else {
+            options.add("🎵 Import Track 2 BGM / Foley SFX (.mp3, .wav, .m4a)")
+        }
+
+        // Playback options
+        if (hasVoice || hasBgm) {
+            options.add("▶ Play Synchronized Audio Preview")
+            options.add("⏸ Pause Audio Preview")
+            if (hasVoice && hasBgm) {
+                options.add("❌ Clear Both Audio Tracks")
+            }
+        }
+
+        val title = "🎵 Multi-Track Audio Studio\n$voiceStatus\n$bgmStatus"
+
         AlertDialog.Builder(activity)
-            .setTitle("🎵 Audio & Dialogue Studio\n$statusText")
-            .setItems(options) { _, which ->
-                if (hasAudio) {
-                    when (which) {
-                        0 -> {
-                            (activity as? MainActivity)?.checkAndRequestRecordAudioPermission {
-                                showMicrophoneRecorderDialog()
-                            }
-                        }
-                        1 -> launchAudioPicker()
-                        2 -> {
-                            ExternalAudioImportEngine.startPlayback(canvasView.project.currentFrameIndex, canvasView.project.fps)
-                            Toast.makeText(activity, "Playing audio...", Toast.LENGTH_SHORT).show()
-                        }
-                        3 -> {
-                            VoiceoverWaveformEngine.autoGenerateDialogueWaveformAndMouths(canvasView.project)
-                            refreshUiState()
-                            canvasView.invalidate()
-                            Toast.makeText(activity, "Mapped voice amplitudes to 2D mouth markers", Toast.LENGTH_SHORT).show()
-                        }
-                        4 -> {
-                            ExternalAudioImportEngine.removeAudio(canvasView.project)
-                            refreshUiState()
-                            canvasView.invalidate()
-                            Toast.makeText(activity, "Audio track removed", Toast.LENGTH_SHORT).show()
+            .setTitle(title)
+            .setItems(options.toTypedArray()) { _, which ->
+                when (options[which]) {
+                    "🎙 Record Voice / Dialogue (Microphone)",
+                    "🎙 Re-record Voice / Dialogue (Microphone)" -> {
+                        (activity as? MainActivity)?.checkAndRequestRecordAudioPermission {
+                            showMicrophoneRecorderDialog()
                         }
                     }
-                } else {
-                    when (which) {
-                        0 -> {
-                            (activity as? MainActivity)?.checkAndRequestRecordAudioPermission {
-                                showMicrophoneRecorderDialog()
-                            }
-                        }
-                        1 -> launchAudioPicker()
-                        2 -> {
-                            VoiceoverWaveformEngine.autoGenerateDialogueWaveformAndMouths(canvasView.project)
-                            refreshUiState()
-                            canvasView.invalidate()
-                            Toast.makeText(activity, "Generated procedural voiceover waveform", Toast.LENGTH_SHORT).show()
-                        }
+                    "📂 Import Track 1 Voice Audio (.mp3, .wav, .m4a)",
+                    "📂 Replace Track 1 Voice Audio (.mp3, .wav, .m4a)" -> launchAudioPicker()
+                    "🎚 Track 1 Voice Volume & Mute" -> showTrackVolumeDialog(isTrack1 = true)
+                    "👄 Auto-Lip-Sync to Voice Waveform" -> {
+                        VoiceoverWaveformEngine.autoGenerateDialogueWaveformAndMouths(canvasView.project)
+                        refreshUiState()
+                        canvasView.invalidate()
+                        Toast.makeText(activity, "Mapped voice amplitudes to 2D mouth markers", Toast.LENGTH_SHORT).show()
+                    }
+                    "👄 Generate Procedural Voiceover Waveform" -> {
+                        VoiceoverWaveformEngine.autoGenerateDialogueWaveformAndMouths(canvasView.project)
+                        refreshUiState()
+                        canvasView.invalidate()
+                        Toast.makeText(activity, "Generated procedural voiceover waveform", Toast.LENGTH_SHORT).show()
+                    }
+                    "🗑 Remove Track 1 Voice" -> {
+                        ExternalAudioImportEngine.removeVoiceTrack(canvasView.project)
+                        refreshUiState()
+                        canvasView.invalidate()
+                        Toast.makeText(activity, "Track 1 Voice removed", Toast.LENGTH_SHORT).show()
+                    }
+                    "🎵 Import Track 2 BGM / Foley SFX (.mp3, .wav, .m4a)",
+                    "🎵 Replace Track 2 BGM / Foley SFX (.mp3, .wav, .m4a)" -> launchBgmAudioPicker()
+                    "🎚 Track 2 BGM Volume & Mute" -> showTrackVolumeDialog(isTrack1 = false)
+                    "🗑 Remove Track 2 BGM" -> {
+                        ExternalAudioImportEngine.removeBgmTrack()
+                        refreshUiState()
+                        canvasView.invalidate()
+                        Toast.makeText(activity, "Track 2 BGM removed", Toast.LENGTH_SHORT).show()
+                    }
+                    "▶ Play Synchronized Audio Preview" -> {
+                        ExternalAudioImportEngine.startPlayback(canvasView.project.currentFrameIndex, canvasView.project.fps)
+                        Toast.makeText(activity, "Playing synchronized audio tracks...", Toast.LENGTH_SHORT).show()
+                    }
+                    "⏸ Pause Audio Preview" -> {
+                        ExternalAudioImportEngine.pausePlayback()
+                        Toast.makeText(activity, "Audio paused", Toast.LENGTH_SHORT).show()
+                    }
+                    "❌ Clear Both Audio Tracks" -> {
+                        ExternalAudioImportEngine.removeVoiceTrack(canvasView.project)
+                        ExternalAudioImportEngine.removeBgmTrack()
+                        refreshUiState()
+                        canvasView.invalidate()
+                        Toast.makeText(activity, "All audio tracks removed", Toast.LENGTH_SHORT).show()
                     }
                 }
             }
             .setPositiveButton("Close", null)
+            .show()
+    }
+
+    private fun showTrackVolumeDialog(isTrack1: Boolean) {
+        val trackName = if (isTrack1) "Track 1: Voice / Dialogue" else "Track 2: Background Music / SFX"
+        val currentVol = if (isTrack1) ExternalAudioImportEngine.voiceVolume else ExternalAudioImportEngine.bgmVolume
+        val isMuted = if (isTrack1) ExternalAudioImportEngine.isVoiceMuted else ExternalAudioImportEngine.isBgmMuted
+
+        val layout = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20f), dp(16f), dp(20f), dp(10f))
+        }
+
+        val volLabel = TextView(context).apply {
+            text = "Stem Volume: ${(currentVol * 100).toInt()}%"
+            setTextColor(Color.WHITE)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+        }
+        layout.addView(volLabel)
+
+        val seek = SeekBar(context).apply {
+            max = 100
+            progress = (currentVol * 100).toInt()
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(s: SeekBar?, p: Int, fromUser: Boolean) {
+                    val vol = p / 100f
+                    if (isTrack1) {
+                        ExternalAudioImportEngine.setVoiceVolume(vol)
+                    } else {
+                        ExternalAudioImportEngine.setBgmVolume(vol)
+                    }
+                    volLabel.text = "Stem Volume: $p%"
+                }
+                override fun onStartTrackingTouch(s: SeekBar?) {}
+                override fun onStopTrackingTouch(s: SeekBar?) {}
+            })
+        }
+        layout.addView(seek)
+
+        val muteBtn = createStudioButton(if (isMuted) "🔇 Unmute Stem" else "🔊 Mute Stem") {}
+        styleButton(muteBtn, isHighlighted = isMuted, accentColor = Color.rgb(220, 60, 60))
+        muteBtn.setOnClickListener {
+            val nowMuted = if (isTrack1) ExternalAudioImportEngine.toggleVoiceMute() else ExternalAudioImportEngine.toggleBgmMute()
+            muteBtn.text = if (nowMuted) "🔇 Unmute Stem" else "🔊 Mute Stem"
+            styleButton(muteBtn, isHighlighted = nowMuted, accentColor = Color.rgb(220, 60, 60))
+            refreshUiState()
+        }
+        layout.addView(muteBtn, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(38f)).apply { topMargin = dp(14f) })
+
+        AlertDialog.Builder(activity)
+            .setTitle("🎚 $trackName")
+            .setView(layout)
+            .setPositiveButton("Done") { _, _ -> refreshUiState() }
             .show()
     }
 
@@ -2925,6 +3083,35 @@ class StudioWorkspaceLayout(private val activity: Activity) : FrameLayout(activi
             context = activity,
             audioUri = uri,
             project = canvasView.project,
+            onProgress = { msg ->
+                post { Toast.makeText(activity, msg, Toast.LENGTH_SHORT).show() }
+            }
+        ) { success, msg ->
+            post {
+                refreshUiState()
+                canvasView.invalidate()
+                Toast.makeText(activity, msg, Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    fun launchBgmAudioPicker() {
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            type = "audio/*"
+            addCategory(Intent.CATEGORY_OPENABLE)
+        }
+        try {
+            activity.startActivityForResult(intent, REQUEST_CODE_AUDIO_BGM)
+        } catch (t: Throwable) {
+            Toast.makeText(activity, "Unable to open audio picker: ${t.message}", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    fun importBgmAudioFromUri(uri: Uri) {
+        Toast.makeText(activity, "Importing Track 2 BGM...", Toast.LENGTH_SHORT).show()
+        ExternalAudioImportEngine.importBgmAudioFileAsync(
+            context = activity,
+            audioUri = uri,
             onProgress = { msg ->
                 post { Toast.makeText(activity, msg, Toast.LENGTH_SHORT).show() }
             }

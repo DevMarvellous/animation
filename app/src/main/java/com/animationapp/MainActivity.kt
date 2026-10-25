@@ -29,6 +29,7 @@ class MainActivity : Activity() {
 
     companion object {
         const val REQUEST_CODE_RECORD_AUDIO = 7002
+        const val REQUEST_CODE_AUDIO_BGM = 7003
     }
 
     fun checkAndRequestRecordAudioPermission(onGranted: () -> Unit) {
@@ -143,6 +144,9 @@ class MainActivity : Activity() {
         if (requestCode == StudioWorkspaceLayout.REQUEST_CODE_AUDIO && resultCode == Activity.RESULT_OK) {
             val uri = data?.data ?: return
             workspaceLayout?.importAudioFromUri(uri)
+        } else if (requestCode == REQUEST_CODE_AUDIO_BGM && resultCode == Activity.RESULT_OK) {
+            val uri = data?.data ?: return
+            workspaceLayout?.importBgmAudioFromUri(uri)
         }
     }
 

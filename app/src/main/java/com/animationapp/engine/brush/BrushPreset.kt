@@ -28,7 +28,8 @@ enum class BrushPreset(
     PIXEL_ART("Pixel Art", "👾", 1.0f, false, Paint.Cap.SQUARE, 0f),
     CALLIGRAPHY_RIBBON("Calligraphy", "🖋", 0.95f, true, Paint.Cap.ROUND, 0f),
     CHARCOAL_CHALK("Charcoal / Chalk", "🪵", 0.68f, true, Paint.Cap.SQUARE, 0f),
-    NEON_LASER("Neon Glow", "⚡", 0.92f, true, Paint.Cap.ROUND, 8f);
+    NEON_LASER("Neon Glow", "⚡", 0.92f, true, Paint.Cap.ROUND, 8f),
+    MANGA_SCREENTONE("Manga Screentone", "🏁", 1.0f, true, Paint.Cap.ROUND, 0f);
 
     private val cachedMaskFilter: BlurMaskFilter? =
         if (blurRadiusPx > 0f) BlurMaskFilter(blurRadiusPx, BlurMaskFilter.Blur.NORMAL) else null
