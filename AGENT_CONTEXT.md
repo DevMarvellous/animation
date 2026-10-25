@@ -234,6 +234,10 @@ com.animationapp/
   - **Hardware MP4 Audio Muxing (`HardwareVideoExporter.kt`)**: Implemented native `MediaExtractor` audio extraction and multi-track `MediaMuxer.addTrack(audioFormat)` so exported 1080p MP4 videos include character voice recordings and BGM soundtracks.
   - **Audio Loop Resynchronization (`AnimationCanvasView.kt`)**: Automatically seeks `ExternalAudioImportEngine` back to start when the animation playhead loops, preventing audio drift across repeated loops.
   - **Paint Bucket Flood Fill Redo (`AnimationLayer.kt`)**: Added `undoneFillBitmap` slot to `LayerCel` so undone paint bucket fills can be redone seamlessly.
+  - **Verified Clean Cloud Build (`40228763448` - Commit `650d89c`)**:
+    - GitHub Actions ultra-optimized APK build completed 100% **SUCCESS** on attempt 1.
+    - Artifacts: `ProAnimationStudio-Release-APK` (136 KB, ID: `12611872718`), `ProAnimationStudio-Debug-APK` (1.04 MB, ID: `12612127031`).
+
 
 
 
