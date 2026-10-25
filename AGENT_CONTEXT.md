@@ -222,6 +222,9 @@ com.animationapp/
     - `ExternalAudioImportEngine.kt`: Expanded from single audio track to dual-stem multi-track architecture (`cachedAudioFile` for Track 1 Voice/Dialogue and `cachedBgmFile` for Track 2 BGM/SFX) with two independent `MediaPlayer`s, independent volume controls (0%–100%), independent mute toggles, synchronous playback and scrubbing.
     - `MainActivity.kt`: Declared `REQUEST_CODE_AUDIO_BGM = 7003` and handled BGM import result in `onActivityResult`.
     - `StudioWorkspaceLayout.kt`: Added dynamic dual-track audio badge (`🎵 Audio [2-TRK]`, `[VOICE]`, `[BGM]`), designed comprehensive `showAudioStudioDialog()` with per-track status, mic recording, file import, lip-sync mapping, and built `showTrackVolumeDialog(isTrack1: Boolean)`, `launchBgmAudioPicker()`, and `importBgmAudioFromUri()`.
+  - **Verified Clean Cloud Build (`40213710565` - Commit `783efd8`)**:
+    - GitHub Actions ultra-optimized APK build completed 100% **SUCCESS** on the first try.
+    - Artifacts: `ProAnimationStudio-Release-APK` (134 KB, ID: `12606647131`), `ProAnimationStudio-Debug-APK` (1.04 MB, ID: `12607006268`).
 
 
 
